@@ -5,7 +5,7 @@ export const metadata = { title: 'Terms of Service' };
 
 const EFFECTIVE_DATE = 'May 1, 2025';
 const COMPANY_NAME = 'Demand RE LLC';
-const CONTACT_EMAIL = 'legal@demandre.ai';
+const CONTACT_EMAIL = 'legal@demand-re.com';
 
 export default function TermsPage() {
   return (

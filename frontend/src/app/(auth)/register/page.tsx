@@ -91,7 +91,7 @@ export default function RegisterPage() {
             ))}
           </div>
         </div>
-        <div className="relative text-xs text-brand-600">demandre.ai</div>
+        <div className="relative text-xs text-brand-600">demand-re.com</div>
       </div>
 
       {/* Right panel — form */}

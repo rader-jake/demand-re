@@ -166,7 +166,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {/* Breadcrumb / page name */}
           <div className="flex-1 hidden sm:block">
             <div className="text-sm text-neutral-400">
-              demandre.ai
+              demand-re.com
               <span className="mx-1.5 text-neutral-300">/</span>
               <span className="text-neutral-600 font-medium capitalize">
                 {pathname.split('/').filter(Boolean).join(' / ')}

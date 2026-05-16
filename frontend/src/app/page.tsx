@@ -310,7 +310,7 @@ export default function LandingPage() {
               <p className="text-brand-400 text-sm max-w-xs leading-relaxed">
                 NYC&apos;s tenant-driven commercial real estate intelligence platform.
               </p>
-              <div className="mt-3 text-xs text-brand-600">demandre.ai</div>
+              <div className="mt-3 text-xs text-brand-600">demand-re.com</div>
             </div>
             <div className="grid grid-cols-2 gap-8 text-sm">
               <div>
@@ -332,7 +332,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="mt-12 pt-6 border-t border-brand-900 text-center text-brand-600 text-xs">
-            © {new Date().getFullYear()} Demand RE. All rights reserved. · demandre.ai
+            © {new Date().getFullYear()} Demand RE. All rights reserved. · demand-re.com
           </div>
         </div>
       </footer>

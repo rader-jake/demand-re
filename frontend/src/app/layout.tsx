@@ -5,7 +5,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: { default: 'Demand RE | NYC Commercial Real Estate Intelligence', template: '%s | Demand RE' },
   description: "Demand RE is NYC's tenant-driven CRE marketplace. Verified tenants post their needs. Landlords and brokers compete for the best fit.",
-  keywords: ['commercial real estate', 'NYC', 'CRE', 'tenant marketplace', 'landlord', 'demandre.ai'],
+  keywords: ['commercial real estate', 'NYC', 'CRE', 'tenant marketplace', 'landlord', 'demand-re.com'],
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
