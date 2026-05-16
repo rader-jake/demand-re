@@ -1,7 +1,7 @@
 {
   "scripts": {
-    "start": "cd backend && npm start",
-    "heroku-postbuild": "cd backend && npm install && npm run build"
+    "start": "npm --prefix backend start",
+    "heroku-postbuild": "npm --prefix backend ci --include=dev && npm --prefix backend run build && npm --prefix backend prune --omit=dev"
   },
   "engines": {
     "node": "20.x"
