@@ -96,6 +96,13 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   });
 });
 
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "Demand RE API is running"
+  });
+});
+
 app.listen(PORT, async () => {
   logger.info(`CRE Marketplace API running on port ${PORT}`);
   const dbOk = await checkConnection();
