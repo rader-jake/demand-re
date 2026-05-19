@@ -44,7 +44,7 @@ docker compose up --build
 
 # App available at:
 #   Frontend:  http://localhost:3000
-#   Backend:   http://localhost:4000
+#   Backend:   http://localhost:5000
 #   DB:        localhost:5432
 ```
 
@@ -70,7 +70,7 @@ cd backend
 cp .env.example .env
 # Edit .env with your DATABASE_URL and JWT secrets
 npm install
-npm run dev   # runs on :4000
+npm run dev   # runs on :5000
 ```
 
 ### 3. Frontend
@@ -91,18 +91,18 @@ JWT_SECRET=your-secret-here
 JWT_EXPIRES_IN=7d
 JWT_REFRESH_SECRET=your-refresh-secret-here
 JWT_REFRESH_EXPIRES_IN=30d
-PORT=4000
-CORS_ORIGINS=http://localhost:3000
+PORT=5000
+ALLOWED_ORIGINS=https://demand-re.com,https://www.demand-re.com,https://demand-re.vercel.app,http://localhost:3000
 NODE_ENV=development
 ```
 
 ### Frontend
 
-The frontend uses Next.js rewrites — all `/api/*` requests proxy to the backend. No additional env vars needed for local dev.
+The frontend calls the backend directly through `NEXT_PUBLIC_API_URL`. If unset, it defaults to `http://localhost:5000` for local dev.
 
 For production, set:
 ```env
-NEXT_PUBLIC_API_URL=https://your-api.com
+NEXT_PUBLIC_API_URL=https://your-heroku-api.herokuapp.com
 ```
 
 ## Seed Accounts

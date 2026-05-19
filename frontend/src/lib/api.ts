@@ -1,10 +1,11 @@
 import axios, { AxiosError } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
 
 export const api = axios.create({
-  baseURL: `${API_URL}/api`,
+  baseURL: `${API_BASE_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
 
 // Attach JWT token to every request
@@ -28,7 +29,7 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
-          const { data } = await axios.post(`${API_URL}/api/auth/refresh`, { refreshToken });
+          const { data } = await axios.post(`${API_BASE_URL}/api/auth/refresh`, { refreshToken }, { withCredentials: true });
           localStorage.setItem('access_token', data.accessToken);
           if (error.config) {
             error.config.headers.Authorization = `Bearer ${data.accessToken}`;
