@@ -1,7 +1,7 @@
 'use client';
 import SubscriptionGate from '@/components/shared/SubscriptionGate';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, SlidersHorizontal, X, ChevronLeft, ChevronRight,
@@ -27,6 +27,14 @@ const CREDIT_OPTIONS = [
 const PAGE_SIZE = 12;
 
 export default function LandlordSearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <LandlordSearchContent />
+    </Suspense>
+  );
+}
+
+function LandlordSearchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 

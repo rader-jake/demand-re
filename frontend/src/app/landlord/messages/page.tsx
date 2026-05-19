@@ -1,7 +1,7 @@
 'use client';
 import SubscriptionGate from '@/components/shared/SubscriptionGate';
 
-import { useEffect, useState, useRef } from 'react';
+import { Suspense, useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MessageSquare, Send, Loader2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -11,6 +11,14 @@ import { getStoredUser } from '@/lib/auth';
 import { cn, formatRelative } from '@/lib/utils';
 
 export default function LandlordMessagesPage() {
+  return (
+    <Suspense fallback={null}>
+      <LandlordMessagesContent />
+    </Suspense>
+  );
+}
+
+function LandlordMessagesContent() {
   const searchParams = useSearchParams();
   const initUserId = searchParams.get('userId');
 
