@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import 'express-async-errors';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -20,6 +21,10 @@ import logger from './utils/logger';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '5000', 10);
+
+// 6. Set trust proxy first
+app.set('trust proxy', 1);
+
 const defaultAllowedOrigins = [
   'https://demand-re.com',
   'https://www.demand-re.com',
@@ -31,28 +36,20 @@ const configuredAllowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.COR
   .map((origin) => origin.trim())
   .filter(Boolean);
 const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...configuredAllowedOrigins]));
-const corsOptions: cors.CorsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`CORS blocked origin: ${origin}`));
-  },
+
+// 5. Configure CORS
+app.use(cors({
+  origin: allowedOrigins,
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
-  optionsSuccessStatus: 204,
-};
+}));
+app.options('*', cors());
 
 // Ensure logs directory exists
 const logsDir = path.join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 
-// Security
+// Security (except CORS which is already handled above)
 app.use(helmet());
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -82,10 +79,20 @@ app.use(express.urlencoded({ extended: true }));
 // HTTP request logging
 app.use(morgan('combined', {
   stream: { write: (msg) => logger.info(msg.trim()) },
-  skip: (req) => req.path === '/health',
+  skip: (req) => req.path === '/health' || req.path === '/api/health',
 }));
 
-// Health check
+// 2. Add backend root health route
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'Demand RE API' });
+});
+
+// 3. Add API health route
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Database specific health check
 app.get('/health', async (_req, res) => {
   const dbOk = await checkConnection();
   res.status(dbOk ? 200 : 503).json({
@@ -95,7 +102,7 @@ app.get('/health', async (_req, res) => {
   });
 });
 
-// API Routes
+// 4. Mount backend routes correctly
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/landlords', landlordRoutes);
@@ -104,7 +111,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/billing', billingRoutes);
 
-// 404
+// 404 handler (must be registered after all valid routes)
 app.use((_req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
@@ -114,13 +121,6 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   logger.error('Unhandled error', { error: err.message, stack: err.stack });
   res.status(500).json({
     error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
-  });
-});
-
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "Demand RE API is running"
   });
 });
 
