@@ -20,7 +20,7 @@ export default function TenantMessagesPage() {
 
   useEffect(() => {
     messageApi.getConversations()
-      .then(res => setConversations(res.data))
+      .then(res => setConversations(res.data.conversations ?? []))
       .catch(() => toast.error('Failed to load conversations'))
       .finally(() => setLoading(false));
   }, []);
