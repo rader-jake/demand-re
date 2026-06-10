@@ -193,3 +193,35 @@ export const FUNDING_STATUS_LABELS: Record<FundingStatus, string> = {
   bootstrapped: 'Bootstrapped', angel: 'Angel', seed: 'Seed',
   series_a: 'Series A', series_b_plus: 'Series B+', public: 'Public', private_equity: 'PE-Backed',
 };
+
+export interface MetaLead {
+  id: string;
+  meta_lead_id: string;
+  created_time?: string;
+  ad_id?: string;
+  ad_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  form_id?: string;
+  form_name?: string;
+  platform?: string;
+  is_organic?: boolean;
+  full_name?: string;
+  email: string;
+  phone_number?: string;
+  business_type?: string;
+  currently_operating?: string;
+  desired_location?: string;
+  space_type?: string;
+  space_size?: string;
+  monthly_budget?: string;
+  move_timeline?: string;
+  wants_contact?: boolean;
+  ideal_space_description?: string;
+  lead_status: string;
+  created_at: string;
+  updated_at: string;
+  user_id?: string;
+}

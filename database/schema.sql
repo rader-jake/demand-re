@@ -441,6 +441,50 @@ CREATE TRIGGER trg_deals_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
+-- META LEAD ADS INGESTION
+-- ============================================================
+
+CREATE TABLE meta_leads (
+  id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  meta_lead_id            TEXT UNIQUE NOT NULL,
+  created_time            TIMESTAMPTZ,
+  ad_id                   TEXT,
+  ad_name                 TEXT,
+  adset_id                TEXT,
+  adset_name              TEXT,
+  campaign_id             TEXT,
+  campaign_name           TEXT,
+  form_id                 TEXT,
+  form_name               TEXT,
+  platform                TEXT,
+  is_organic              BOOLEAN,
+  full_name               TEXT,
+  email                   TEXT NOT NULL,
+  phone_number            TEXT,
+  business_type           TEXT,
+  currently_operating     TEXT,
+  desired_location        TEXT,
+  space_type              TEXT,
+  space_size              TEXT,
+  monthly_budget          TEXT,
+  move_timeline           TEXT,
+  wants_contact           BOOLEAN,
+  ideal_space_description TEXT,
+  lead_status             TEXT DEFAULT 'new', -- 'new', 'linked', 'processed'
+  raw_payload             JSONB,
+  user_id                 UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_meta_leads_email_lower ON meta_leads(LOWER(email));
+CREATE INDEX idx_meta_leads_user_id ON meta_leads(user_id);
+
+CREATE TRIGGER trg_meta_leads_updated_at
+  BEFORE UPDATE ON meta_leads
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
 -- VIEWS
 -- ============================================================
 

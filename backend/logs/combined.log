@@ -174,3 +174,9 @@
 {"level":"info","message":"CRE Marketplace API running on port 5003","service":"cre-api","timestamp":"2026-06-10T13:56:09.511Z"}
 {"level":"info","message":"Database connected successfully","service":"cre-api","timestamp":"2026-06-10T13:56:09.976Z"}
 {"level":"info","message":"::1 - - [10/Jun/2026:13:58:06 +0000] \"POST /api/auth/register HTTP/1.1\" 201 910 \"http://localhost:3000/\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36\"","service":"cre-api","timestamp":"2026-06-10T13:58:06.485Z"}
+{"level":"info","message":"CRE Marketplace API running on port 5003","service":"cre-api","timestamp":"2026-06-10T15:07:19.022Z"}
+{"level":"info","message":"Database connected successfully","service":"cre-api","timestamp":"2026-06-10T15:07:19.476Z"}
+{"level":"info","message":"Lead gen successfully ingested/updated: id=1584acc4-e49c-4f51-bbd7-47865fec69f5, email=jake_tenant@demandre.com, status=new, user_id=null","service":"cre-api","timestamp":"2026-06-10T15:07:32.028Z"}
+{"level":"info","message":"::1 - - [10/Jun/2026:15:07:32 +0000] \"POST /api/webhooks/meta-leads/test-simulate HTTP/1.1\" 200 75 \"-\" \"curl/8.7.1\"","service":"cre-api","timestamp":"2026-06-10T15:07:32.031Z"}
+{"level":"info","message":"::1 - - [10/Jun/2026:15:07:46 +0000] \"POST /api/auth/register HTTP/1.1\" 201 921 \"-\" \"curl/8.7.1\"","service":"cre-api","timestamp":"2026-06-10T15:07:46.405Z"}
+{"level":"info","message":"::1 - - [10/Jun/2026:15:09:24 +0000] \"GET /api/tenants/profile HTTP/1.1\" 200 3635 \"-\" \"curl/8.7.1\"","service":"cre-api","timestamp":"2026-06-10T15:09:24.889Z"}

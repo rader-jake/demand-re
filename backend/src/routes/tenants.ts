@@ -19,12 +19,18 @@ router.get('/profile', authenticate, requireTenant, async (req: AuthRequest, res
     [req.user!.userId]
   );
 
+  const leadResult = await query(
+    `SELECT * FROM meta_leads WHERE user_id = $1 ORDER BY created_time DESC LIMIT 1`,
+    [req.user!.userId]
+  );
+  const metaLead = leadResult.rows.length > 0 ? leadResult.rows[0] : null;
+
   if (result.rows.length === 0) {
-    res.json({ profile: null });
+    res.json({ profile: null, metaLead });
     return;
   }
 
-  res.json({ profile: result.rows[0] });
+  res.json({ profile: result.rows[0], metaLead });
 });
 
 // POST /api/tenants/profile - Create profile (step 1: business info)

@@ -9,11 +9,12 @@ import {
 import { toast } from 'sonner';
 import ScoreBar from '@/components/ui/ScoreBar';
 import { tenantApi, getErrorMessage } from '@/lib/api';
-import { TenantProfile, InterestExpression, FUNDING_STATUS_LABELS } from '@/types';
+import { TenantProfile, InterestExpression, FUNDING_STATUS_LABELS, MetaLead } from '@/types';
 import { cn, formatRelative, getScoreTier } from '@/lib/utils';
 
 export default function TenantDashboard() {
   const [profile, setProfile] = useState<TenantProfile | null>(null);
+  const [metaLead, setMetaLead] = useState<MetaLead | null>(null);
   const [interests, setInterests] = useState<InterestExpression[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,6 +22,7 @@ export default function TenantDashboard() {
     Promise.all([tenantApi.getProfile(), tenantApi.getInterests()])
       .then(([profileRes, interestsRes]) => {
         setProfile(profileRes.data.profile);
+        setMetaLead(profileRes.data.metaLead);
         setInterests(interestsRes.data.interests ?? []);
       })
       .catch((err) => toast.error(getErrorMessage(err)))
@@ -42,6 +44,85 @@ export default function TenantDashboard() {
         <div className="flex items-center justify-center h-64">
           <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
         </div>
+    );
+  }
+
+  if (!profile && metaLead) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-8 py-10">
+        <div className="bg-gradient-to-br from-brand-500/10 to-purple-500/10 border border-brand-500/20 rounded-3xl p-8 shadow-sm">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-brand-500 text-white flex items-center justify-center font-bold text-xl shadow-md shadow-brand-500/20">
+              f
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-neutral-900">Meta Lead Intake Summary</h2>
+              <p className="text-sm text-neutral-500">We found lead details from your Meta Lead Form submission</p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 bg-white/60 backdrop-blur-sm rounded-2xl p-6 border border-neutral-100 mb-8">
+            <div className="space-y-4">
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Business Type</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.business_type || '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Desired Location</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.desired_location || '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Space Type</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.space_type || '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Space Size</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.space_size ? `${metaLead.space_size} SF` : '—'}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Monthly Budget</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.monthly_budget ? `$${metaLead.monthly_budget}` : '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Move Timeline</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.move_timeline || '—'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Contact Preference</span>
+                <p className="font-semibold text-neutral-800 text-sm mt-0.5">{metaLead.wants_contact ? 'Wants Contact' : 'No Contact Requested'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Lead Status</span>
+                <div>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 mt-1 capitalize">
+                    {metaLead.lead_status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {metaLead.ideal_space_description && (
+              <div className="md:col-span-2 border-t border-neutral-100 pt-4 mt-2">
+                <span className="text-xs text-neutral-400 font-medium uppercase tracking-wide">Ideal Space Description</span>
+                <p className="text-neutral-600 text-sm mt-1 italic leading-relaxed">"{metaLead.ideal_space_description}"</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-4 justify-between bg-brand-500/5 border border-brand-500/10 rounded-2xl p-4 sm:p-5">
+            <div className="text-left">
+              <h4 className="font-bold text-brand-900 text-sm">Ready to make your profile live?</h4>
+              <p className="text-xs text-brand-700 mt-0.5">Confirm and complete your profile to show up in NYC landlord search results.</p>
+            </div>
+            <Link href="/tenant/onboarding" className="w-full sm:w-auto btn-primary shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2">
+              Confirm & Complete Profile Onboarding <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -222,40 +303,81 @@ export default function TenantDashboard() {
           </div>
         </div>
 
-        {/* Profile summary */}
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="font-semibold text-neutral-900">Profile Summary</h3>
-            <Link href="/tenant/profile" className="text-sm text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
-              <Edit className="w-3 h-3" /> Edit
-            </Link>
+        {/* Profile & Lead summaries */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Profile summary */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-semibold text-neutral-900">Profile Summary</h3>
+              <Link href="/tenant/profile" className="text-sm text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                <Edit className="w-3 h-3" /> Edit
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div>
+                <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Seeking</div>
+                <div className="space-y-2 text-sm">
+                  {profile.sqftMin && <div><span className="text-neutral-500">Size:</span> <span className="font-medium">{profile.sqftMin?.toLocaleString()}–{profile.sqftMax?.toLocaleString()} SF</span></div>}
+                  {profile.budgetPsfMin && <div><span className="text-neutral-500">Budget:</span> <span className="font-medium">${profile.budgetPsfMin}–${profile.budgetPsfMax} PSF</span></div>}
+                  {profile.targetMoveInDate && <div><span className="text-neutral-500">Move-in:</span> <span className="font-medium">{profile.targetMoveInDate}</span></div>}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Neighborhoods</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(profile.preferredNeighborhoods ?? []).slice(0, 6).map((n) => (
+                    <span key={n} className="badge bg-neutral-100 text-neutral-600">{n}</span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Business</div>
+                <div className="space-y-2 text-sm">
+                  <div><span className="text-neutral-500">Locations:</span> <span className="font-medium">{profile.numberOfLocations}</span></div>
+                  {profile.fundingStatus && <div><span className="text-neutral-500">Funding:</span> <span className="font-medium">{FUNDING_STATUS_LABELS[profile.fundingStatus]}</span></div>}
+                  {profile.yearsInOperation && <div><span className="text-neutral-500">Years:</span> <span className="font-medium">{profile.yearsInOperation} yrs</span></div>}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div>
-              <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Seeking</div>
-              <div className="space-y-2 text-sm">
-                {profile.sqftMin && <div><span className="text-neutral-500">Size:</span> <span className="font-medium">{profile.sqftMin?.toLocaleString()}–{profile.sqftMax?.toLocaleString()} SF</span></div>}
-                {profile.budgetPsfMin && <div><span className="text-neutral-500">Budget:</span> <span className="font-medium">${profile.budgetPsfMin}–${profile.budgetPsfMax} PSF</span></div>}
-                {profile.targetMoveInDate && <div><span className="text-neutral-500">Move-in:</span> <span className="font-medium">{profile.targetMoveInDate}</span></div>}
+
+          {/* Meta Lead summary */}
+          {metaLead && (
+            <div className="card p-6 bg-gradient-to-br from-brand-500/5 to-purple-500/5 border border-brand-500/10 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/5 rounded-full blur-2xl pointer-events-none"></div>
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="w-6 h-6 rounded bg-brand-500 text-white flex items-center justify-center font-bold text-xs">
+                  f
+                </div>
+                <h3 className="font-semibold text-neutral-900">Meta Lead Intake Summary</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-xs text-neutral-400 font-medium">Space Type & Size</span>
+                  <p className="font-medium mt-0.5 text-neutral-800">{metaLead.space_type || '—'} {metaLead.space_size ? `(${metaLead.space_size} SF)` : ''}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-neutral-400 font-medium">Monthly Budget</span>
+                  <p className="font-medium mt-0.5 text-neutral-800">{metaLead.monthly_budget ? `$${metaLead.monthly_budget}` : '—'}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-neutral-400 font-medium">Desired Location</span>
+                  <p className="font-medium mt-0.5 text-neutral-800">{metaLead.desired_location || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-neutral-400 font-medium">Timeline</span>
+                  <p className="font-medium mt-0.5 text-neutral-800">{metaLead.move_timeline || '—'}</p>
+                </div>
+                {metaLead.ideal_space_description && (
+                  <div className="col-span-2 border-t border-neutral-100 pt-3 mt-1">
+                    <span className="text-xs text-neutral-400 font-medium">Ideal Space Description</span>
+                    <p className="text-neutral-600 text-xs mt-1 leading-relaxed italic">"{metaLead.ideal_space_description}"</p>
+                  </div>
+                )}
               </div>
             </div>
-            <div>
-              <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Neighborhoods</div>
-              <div className="flex flex-wrap gap-1.5">
-                {(profile.preferredNeighborhoods ?? []).slice(0, 6).map((n) => (
-                  <span key={n} className="badge bg-neutral-100 text-neutral-600">{n}</span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-neutral-400 font-medium uppercase tracking-wide mb-3">Business</div>
-              <div className="space-y-2 text-sm">
-                <div><span className="text-neutral-500">Locations:</span> <span className="font-medium">{profile.numberOfLocations}</span></div>
-                {profile.fundingStatus && <div><span className="text-neutral-500">Funding:</span> <span className="font-medium">{FUNDING_STATUS_LABELS[profile.fundingStatus]}</span></div>}
-                {profile.yearsInOperation && <div><span className="text-neutral-500">Years:</span> <span className="font-medium">{profile.yearsInOperation} yrs</span></div>}
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
   );

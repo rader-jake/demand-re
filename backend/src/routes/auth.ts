@@ -5,6 +5,7 @@ import { query } from '../config/database';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../config/jwt';
 import { validate } from '../middleware/validate';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { ScoringService } from '../services/scoring';
 
 const router = Router();
 
@@ -36,6 +37,79 @@ router.post(
     );
 
     const user = result.rows[0] as Record<string, string>;
+
+    // Meta Lead Ads matching, linking, and auto-bootstrapping
+    try {
+      const leadResult = await query<{
+        id: string;
+        business_type: string | null;
+        full_name: string | null;
+        space_type: string | null;
+        ideal_space_description: string | null;
+        currently_operating: string | null;
+        desired_location: string | null;
+        space_size: string | null;
+        monthly_budget: string | null;
+        move_timeline: string | null;
+      }>(
+        'SELECT * FROM meta_leads WHERE LOWER(email) = LOWER($1) ORDER BY created_time DESC LIMIT 1',
+        [email]
+      );
+
+      if (leadResult.rows.length > 0) {
+        const lead = leadResult.rows[0];
+
+        // Link user_id and set status
+        await query(
+          "UPDATE meta_leads SET user_id = $1, lead_status = 'linked' WHERE id = $2",
+          [user.id, lead.id]
+        );
+
+        if (role === 'tenant') {
+          // Check if profile already exists to be safe
+          const existingProfile = await query('SELECT id FROM tenant_profiles WHERE user_id = $1', [user.id]);
+          if (existingProfile.rows.length === 0) {
+            const legalName = lead.business_type || lead.full_name || `${firstName} ${lastName}`;
+            const industry = lead.business_type || 'Other';
+            const spaceUseType = mapSpaceUseType(lead.space_type);
+            const yearsInOperation = lead.currently_operating && 
+              (['yes', 'true', 'y', '1', 'operating'].includes(lead.currently_operating.toLowerCase().trim())) ? 2 : 0;
+
+            const profileResult = await query<{ id: string }>(
+              `INSERT INTO tenant_profiles (user_id, legal_name, industry, space_use_type, years_in_operation, description, status)
+               VALUES ($1, $2, $3, $4, $5, $6, 'draft')
+               RETURNING id`,
+              [user.id, legalName, industry, spaceUseType, yearsInOperation, lead.ideal_space_description || null]
+            );
+
+            const profileId = profileResult.rows[0].id;
+            const { min: sqftMin, max: sqftMax } = parseSqft(lead.space_size);
+            const { min: budgetMin, max: budgetMax } = parseBudget(lead.monthly_budget);
+
+            await query(
+              `INSERT INTO tenant_space_requirements (
+                 tenant_profile_id, preferred_neighborhoods, sqft_min, sqft_max,
+                 budget_monthly_min, budget_monthly_max, timeline_notes
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [
+                profileId,
+                lead.desired_location ? [lead.desired_location] : [],
+                sqftMin,
+                sqftMax,
+                budgetMin,
+                budgetMax,
+                lead.move_timeline || null
+              ]
+            );
+
+            // Compute scores
+            await ScoringService.computeAndSave(profileId);
+          }
+        }
+      }
+    } catch (linkError) {
+      console.error('Failed to link lead during registration:', linkError);
+    }
 
     const payload = { userId: user.id, id: user.id, email, role: user.role as 'tenant' | 'landlord' | 'admin', firstName, lastName };
     const accessToken = signToken(payload);
@@ -158,5 +232,40 @@ router.put('/me', authenticate,
     res.json({ message: 'Profile updated' });
   }
 );
+
+function mapSpaceUseType(val: string | null): string {
+  if (!val) return 'office';
+  const lower = val.toLowerCase().trim();
+  if (lower.includes('retail') || lower.includes('shop') || lower.includes('store')) return 'retail';
+  if (lower.includes('office') || lower.includes('corporate') || lower.includes('hq')) return 'office';
+  if (lower.includes('industrial') || lower.includes('warehouse') || lower.includes('factory')) return 'industrial';
+  if (lower.includes('flex')) return 'flex';
+  if (lower.includes('medical') || lower.includes('clinic') || lower.includes('doctor') || lower.includes('hospital')) return 'medical';
+  if (lower.includes('restaurant') || lower.includes('food') || lower.includes('cafe') || lower.includes('bar')) return 'restaurant';
+  if (lower.includes('mixed')) return 'mixed';
+  return 'office';
+}
+
+function parseSqft(val: string | null): { min: number | null; max: number | null } {
+  if (!val) return { min: null, max: null };
+  const numbers = val.replace(/,/g, '').match(/\d+/g);
+  if (!numbers || numbers.length === 0) return { min: null, max: null };
+  if (numbers.length === 1) {
+    const size = parseInt(numbers[0], 10);
+    return { min: Math.round(size * 0.9), max: Math.round(size * 1.1) };
+  }
+  return { min: parseInt(numbers[0], 10), max: parseInt(numbers[1], 10) };
+}
+
+function parseBudget(val: string | null): { min: number | null; max: number | null } {
+  if (!val) return { min: null, max: null };
+  const numbers = val.replace(/,/g, '').match(/\d+/g);
+  if (!numbers || numbers.length === 0) return { min: null, max: null };
+  if (numbers.length === 1) {
+    const budget = parseInt(numbers[0], 10);
+    return { min: Math.round(budget * 0.9), max: Math.round(budget * 1.1) };
+  }
+  return { min: parseInt(numbers[0], 10), max: parseInt(numbers[1], 10) };
+}
 
 export default router;
