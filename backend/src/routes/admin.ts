@@ -237,4 +237,293 @@ router.get('/analytics/export', authenticate, requireAdmin, async (req: AuthRequ
   res.json({ exported_at: new Date().toISOString(), type, count: data.length, data });
 });
 
+// GET /api/admin/requirements
+// Returns requirements with search, status filtering, and pagination
+router.get('/requirements', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { search, lead_status, page = '1', limit = '50' } = req.query as Record<string, string>;
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let p = 1;
+
+  if (lead_status) {
+    conditions.push(`status = $${p++}`);
+    params.push(lead_status);
+  }
+
+  if (search) {
+    conditions.push(`(full_name ILIKE $${p} OR email ILIKE $${p} OR business_type ILIKE $${p} OR move_timeline_label ILIKE $${p})`);
+    params.push(`%${search}%`);
+    p++;
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limitVal = parseInt(limit, 10);
+  const offsetVal = (parseInt(page, 10) - 1) * limitVal;
+
+  const [requirements, count] = await Promise.all([
+    query(
+      `SELECT *, created_at AS created_time FROM tenant_requirements ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
+      [...params, limitVal, offsetVal]
+    ),
+    query(`SELECT COUNT(*) AS total FROM tenant_requirements ${where}`, params),
+  ]);
+
+  // Keep both keys for compatibility
+  res.json({
+    leads: requirements.rows.map((r: any) => ({
+      ...r,
+      lead_status: r.status,
+      desired_location: r.neighborhoods ? r.neighborhoods[0] : null,
+      space_type: r.space_types ? r.space_types[0] : null,
+      space_size: r.max_square_feet ? `${r.min_square_feet}-${r.max_square_feet}` : null,
+      monthly_budget: r.max_monthly_budget ? `${r.min_monthly_budget}-${r.max_monthly_budget}` : null,
+      move_timeline: r.move_timeline_label,
+      phone_number: r.phone
+    })),
+    requirements: requirements.rows,
+    pagination: {
+      total: parseInt((count.rows[0] as { total: string }).total, 10),
+      page: parseInt(page, 10),
+      limit: limitVal,
+    },
+  });
+});
+
+// GET /api/admin/requirements/:id
+// Returns single requirement with all associated tenant_matches
+router.get('/requirements/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+
+  const reqResult = await query('SELECT *, created_at AS created_time FROM tenant_requirements WHERE id = $1', [id]);
+  if (reqResult.rows.length === 0) {
+    res.status(404).json({ error: 'Requirement not found' });
+    return;
+  }
+
+  const matchesResult = await query(
+    'SELECT * FROM tenant_matches WHERE requirement_id = $1 ORDER BY created_at DESC',
+    [id]
+  );
+
+  const tr = reqResult.rows[0] as Record<string, any>;
+  const leadMapped = {
+    ...tr,
+    lead_status: tr.status,
+    desired_location: tr.neighborhoods ? tr.neighborhoods[0] : null,
+    space_type: tr.space_types ? tr.space_types[0] : null,
+    space_size: tr.max_square_feet ? `${tr.min_square_feet}-${tr.max_square_feet}` : null,
+    monthly_budget: tr.max_monthly_budget ? `${tr.min_monthly_budget}-${tr.max_monthly_budget}` : null,
+    move_timeline: tr.move_timeline_label,
+    phone_number: tr.phone,
+    wants_contact: tr.contact_permission
+  };
+
+  res.json({
+    ...leadMapped,
+    matches: matchesResult.rows,
+  });
+});
+
+// PATCH /api/admin/requirements/:id
+// Updates requirement status
+router.patch('/requirements/:id', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const { lead_status } = req.body;
+
+  const result = await query(
+    'UPDATE tenant_requirements SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+    [lead_status, id]
+  );
+
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: 'Requirement not found' });
+    return;
+  }
+
+  res.json(result.rows[0]);
+});
+
+// POST /api/admin/requirements/:id/matches
+// Creates a manual match for a requirement
+router.post('/requirements/:id/matches', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const {
+    listing_title, listing_url, address, city, state, neighborhood,
+    square_feet, rent, space_type, broker_name, broker_phone, broker_email,
+    admin_notes, match_score, verification_status
+  } = req.body;
+
+  if (!listing_url) {
+    res.status(400).json({ error: 'Listing URL is required' });
+    return;
+  }
+
+  const result = await query(
+    `INSERT INTO tenant_matches (
+       requirement_id, listing_title, listing_url, address, city, state, neighborhood,
+       square_feet, rent, space_type, broker_name, broker_phone, broker_email,
+       admin_notes, match_score, verification_status
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     RETURNING *`,
+    [
+      id, listing_title, listing_url, address, city, state, neighborhood,
+      square_feet, rent, space_type, broker_name, broker_phone, broker_email,
+      admin_notes, match_score !== undefined ? parseInt(match_score, 10) : null,
+      verification_status ?? 'needs_review'
+    ]
+  );
+
+  res.status(201).json(result.rows[0]);
+});
+
+// PATCH /api/admin/matches/:matchId
+// Updates listing match parameters
+router.patch('/matches/:matchId', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { matchId } = req.params;
+  const fields = req.body;
+
+  const allowedFields = [
+    'listing_title', 'listing_url', 'address', 'city', 'state', 'neighborhood',
+    'square_feet', 'rent', 'space_type', 'broker_name', 'broker_phone', 'broker_email',
+    'admin_notes', 'match_score', 'verification_status', 'tenant_sent'
+  ];
+
+  const keys = Object.keys(fields).filter(key => allowedFields.includes(key));
+  if (keys.length === 0) {
+    res.status(400).json({ error: 'No valid update fields provided' });
+    return;
+  }
+
+  const sets = keys.map((key, idx) => `"${key}" = $${idx + 2}`);
+  const values = keys.map(key => {
+    if (key === 'match_score' && fields[key] !== null && fields[key] !== undefined) {
+      return parseInt(fields[key], 10);
+    }
+    return fields[key];
+  });
+
+  const result = await query(
+    `UPDATE tenant_matches SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    [matchId, ...values]
+  );
+
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: 'Match not found' });
+    return;
+  }
+
+  res.json(result.rows[0]);
+});
+
+// DELETE /api/admin/matches/:matchId
+// Deletes a match
+router.delete('/matches/:matchId', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { matchId } = req.params;
+
+  const result = await query('DELETE FROM tenant_matches WHERE id = $1 RETURNING id', [matchId]);
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: 'Match not found' });
+    return;
+  }
+
+  res.json({ message: 'Match deleted successfully', id: matchId });
+});
+
+// POST /api/admin/requirements/:id/send-matches
+// Generates matches email preview, marks matches as sent, and updates status
+router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const { matchIds } = req.body;
+
+  if (!Array.isArray(matchIds) || matchIds.length === 0) {
+    res.status(400).json({ error: 'No match IDs provided' });
+    return;
+  }
+
+  const reqResult = await query('SELECT * FROM tenant_requirements WHERE id = $1', [id]);
+  if (reqResult.rows.length === 0) {
+    res.status(404).json({ error: 'Requirement not found' });
+    return;
+  }
+  const requirement = reqResult.rows[0] as Record<string, any>;
+
+  const matchesResult = await query(
+    'SELECT * FROM tenant_matches WHERE requirement_id = $1 AND id = ANY($2)',
+    [id, matchIds]
+  );
+  const matches = matchesResult.rows;
+
+  if (matches.length === 0) {
+    res.status(400).json({ error: 'No matching records found to send' });
+    return;
+  }
+
+  // Mark selected matches as sent
+  await query(
+    'UPDATE tenant_matches SET tenant_sent = true WHERE requirement_id = $1 AND id = ANY($2)',
+    [id, matchIds]
+  );
+
+  // Update status to matches_sent
+  await query(
+    "UPDATE tenant_requirements SET status = 'Matches Sent' WHERE id = $1",
+    [id]
+  );
+
+  // Generate Email Preview (mock send)
+  const tenantName = requirement.full_name || 'Tenant';
+  const subject = `Curated space matches for your requirements - Demand RE`;
+
+  let textBody = `Hi ${tenantName},\n\n`;
+  textBody += `We have manually reviewed your business requirements and found some matches for you:\n\n`;
+
+  matches.forEach((match: any, index: number) => {
+    textBody += `${index + 1}. ${match.listing_title || 'Commercial Listing'}\n`;
+    if (match.address) textBody += `   Address: ${match.address}${match.city ? `, ${match.city}` : ''}${match.state ? ` ${match.state}` : ''}\n`;
+    if (match.square_feet) textBody += `   Size: ${match.square_feet} sq ft\n`;
+    if (match.rent) textBody += `   Rent: ${match.rent}\n`;
+    if (match.space_type) textBody += `   Type: ${match.space_type}\n`;
+    if (match.listing_url) textBody += `   Link: ${match.listing_url}\n`;
+    if (match.broker_name) textBody += `   Broker: ${match.broker_name}${match.broker_phone ? ` (${match.broker_phone})` : ''}${match.broker_email ? ` (${match.broker_email})` : ''}\n`;
+    if (match.admin_notes) textBody += `   Notes: ${match.admin_notes}\n`;
+    textBody += `\n`;
+  });
+
+  textBody += `Let us know if you would like to tour any of these spaces or need further assistance!\n\n`;
+  textBody += `Best regards,\n`;
+  textBody += `Demand RE Team`;
+
+  let htmlBody = `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">`;
+  htmlBody += `<h2 style="color: #0d2149;">Hi ${tenantName},</h2>`;
+  htmlBody += `<p>We have manually reviewed your business requirements and found some matches for you:</p>`;
+
+  matches.forEach((match: any) => {
+    htmlBody += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; background-color: #f8fafc;">`;
+    htmlBody += `<h3 style="margin-top: 0; color: #0d2149;">${match.listing_title || 'Commercial Space'}</h3>`;
+    htmlBody += `<ul style="list-style-type: none; padding-left: 0; margin-bottom: 12px;">`;
+    if (match.address) htmlBody += `<li><strong>Address:</strong> ${match.address}${match.city ? `, ${match.city}` : ''}${match.state ? ` ${match.state}` : ''}</li>`;
+    if (match.square_feet) htmlBody += `<li><strong>Size:</strong> ${match.square_feet} sq ft</li>`;
+    if (match.rent) htmlBody += `<li><strong>Rent:</strong> ${match.rent}</li>`;
+    if (match.space_type) htmlBody += `<li><strong>Space Type:</strong> ${match.space_type}</li>`;
+    if (match.broker_name) htmlBody += `<li><strong>Broker:</strong> ${match.broker_name}${match.broker_phone ? ` (${match.broker_phone})` : ''}${match.broker_email ? ` (${match.broker_email})` : ''}</li>`;
+    htmlBody += `</ul>`;
+    if (match.admin_notes) htmlBody += `<p style="margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid #60a5fa; background-color: #eff6ff; font-size: 14px;"><em>Notes: ${match.admin_notes}</em></p>`;
+    if (match.listing_url) htmlBody += `<a href="${match.listing_url}" target="_blank" style="display: inline-block; padding: 8px 16px; font-size: 14px; font-weight: bold; color: #fff; background-color: #2563eb; text-decoration: none; border-radius: 8px;">View Listing Details</a>`;
+    htmlBody += `</div>`;
+  });
+
+  htmlBody += `<p>Please let us know if you would like to schedule a tour for any of these options or need more matches!</p>`;
+  htmlBody += `<p style="margin-top: 24px;">Best regards,<br/><strong>Demand RE Admin Team</strong></p>`;
+  htmlBody += `</div>`;
+
+  res.json({
+    preview: {
+      to: requirement.email,
+      subject,
+      text: textBody,
+      html: htmlBody,
+    },
+  });
+});
+
 export default router;

@@ -42,17 +42,9 @@ router.post(
     try {
       const leadResult = await query<{
         id: string;
-        business_type: string | null;
-        full_name: string | null;
-        space_type: string | null;
-        ideal_space_description: string | null;
-        currently_operating: string | null;
-        desired_location: string | null;
-        space_size: string | null;
-        monthly_budget: string | null;
-        move_timeline: string | null;
+        meta_lead_id: string;
       }>(
-        'SELECT * FROM meta_leads WHERE LOWER(email) = LOWER($1) ORDER BY created_time DESC LIMIT 1',
+        'SELECT id, meta_lead_id FROM meta_leads WHERE LOWER(email) = LOWER($1) ORDER BY created_time DESC LIMIT 1',
         [email]
       );
 
@@ -66,49 +58,36 @@ router.post(
         );
 
         if (role === 'tenant') {
-          // Check if profile already exists to be safe
-          const existingProfile = await query('SELECT id FROM tenant_profiles WHERE user_id = $1', [user.id]);
-          if (existingProfile.rows.length === 0) {
-            const legalName = lead.business_type || lead.full_name || `${firstName} ${lastName}`;
-            const industry = lead.business_type || 'Other';
-            const spaceUseType = mapSpaceUseType(lead.space_type);
-            const yearsInOperation = lead.currently_operating && 
-              (['yes', 'true', 'y', '1', 'operating'].includes(lead.currently_operating.toLowerCase().trim())) ? 2 : 0;
+          // Link user_id in tenant_requirements matching source_lead_id or email
+          const linkResult = await query<{ id: string }>(
+            `UPDATE tenant_requirements
+             SET user_id = $1
+             WHERE source_lead_id = $2 OR LOWER(email) = LOWER($3)
+             RETURNING id`,
+            [user.id, lead.meta_lead_id, email]
+          );
 
-            const profileResult = await query<{ id: string }>(
-              `INSERT INTO tenant_profiles (user_id, legal_name, industry, space_use_type, years_in_operation, description, status)
-               VALUES ($1, $2, $3, $4, $5, $6, 'draft')
-               RETURNING id`,
-              [user.id, legalName, industry, spaceUseType, yearsInOperation, lead.ideal_space_description || null]
-            );
+          if (linkResult.rows.length > 0) {
+            for (const row of linkResult.rows) {
+              await ScoringService.computeAndSave(row.id);
+            }
+          }
+        }
+      } else if (role === 'tenant') {
+        // Link any matching tenant requirements directly by email
+        const linkResult = await query<{ id: string }>(
+          "UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = LOWER($2) AND user_id IS NULL RETURNING id",
+          [user.id, email]
+        );
 
-            const profileId = profileResult.rows[0].id;
-            const { min: sqftMin, max: sqftMax } = parseSqft(lead.space_size);
-            const { min: budgetMin, max: budgetMax } = parseBudget(lead.monthly_budget);
-
-            await query(
-              `INSERT INTO tenant_space_requirements (
-                 tenant_profile_id, preferred_neighborhoods, sqft_min, sqft_max,
-                 budget_monthly_min, budget_monthly_max, timeline_notes
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                profileId,
-                lead.desired_location ? [lead.desired_location] : [],
-                sqftMin,
-                sqftMax,
-                budgetMin,
-                budgetMax,
-                lead.move_timeline || null
-              ]
-            );
-
-            // Compute scores
-            await ScoringService.computeAndSave(profileId);
+        if (linkResult.rows.length > 0) {
+          for (const row of linkResult.rows) {
+            await ScoringService.computeAndSave(row.id);
           }
         }
       }
     } catch (linkError) {
-      console.error('Failed to link lead during registration:', linkError);
+      console.error('Failed to link lead/requirement during registration:', linkError);
     }
 
     const payload = { userId: user.id, id: user.id, email, role: user.role as 'tenant' | 'landlord' | 'admin', firstName, lastName };
@@ -230,6 +209,99 @@ router.put('/me', authenticate,
       [firstName ?? null, lastName ?? null, phone ?? null, req.user!.userId]
     );
     res.json({ message: 'Profile updated' });
+  }
+);
+
+// POST /api/auth/activate
+router.post(
+  '/activate',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('token').notEmpty(),
+    body('password').isLength({ min: 8 }).matches(/^(?=.*[A-Z])(?=.*\d)/),
+  ],
+  validate,
+  async (req: Request, res: Response): Promise<void> => {
+    const { email, token, password } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. Verify activation record
+    const activationResult = await query(
+      `SELECT * FROM account_activations
+       WHERE LOWER(email) = $1 AND token = $2 AND is_completed = FALSE`,
+      [normalizedEmail, token]
+    );
+
+    if (activationResult.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or already completed activation token' });
+      return;
+    }
+
+    const activation = activationResult.rows[0] as { expires_at: Date };
+    if (new Date(activation.expires_at) < new Date()) {
+      res.status(400).json({ error: 'Activation token has expired' });
+      return;
+    }
+
+    // Check if user already exists
+    const existingUser = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+    if (existingUser.rows.length > 0) {
+      res.status(400).json({ error: 'Account has already been activated' });
+      return;
+    }
+
+    // 2. Fetch full name and phone from requirements to seed user profile
+    const reqResult = await query<{ full_name: string | null; phone: string | null }>(
+      'SELECT full_name, phone FROM tenant_requirements WHERE LOWER(email) = $1 ORDER BY created_at DESC LIMIT 1',
+      [normalizedEmail]
+    );
+
+    const fullName = reqResult.rows[0]?.full_name || '';
+    const phone = reqResult.rows[0]?.phone || null;
+
+    let firstName = 'Tenant';
+    let lastName = 'User';
+    if (fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length > 0) {
+        firstName = parts[0];
+        if (parts.length > 1) {
+          lastName = parts.slice(1).join(' ');
+        }
+      }
+    }
+
+    // 3. Create the user
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userResult = await query<{ id: string; role: string; email: string; first_name: string; last_name: string }>(
+      `INSERT INTO users (email, password_hash, role, first_name, last_name, phone)
+       VALUES ($1, $2, 'tenant', $3, $4, $5) RETURNING id, role, email, first_name, last_name`,
+      [normalizedEmail, passwordHash, firstName, lastName, phone]
+    );
+    const user = userResult.rows[0];
+
+    // 4. Link all requirements with matching email
+    await query('UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = $2', [user.id, normalizedEmail]);
+
+    // 5. Mark activation complete
+    await query('UPDATE account_activations SET is_completed = TRUE WHERE LOWER(email) = $1', [normalizedEmail]);
+
+    // 6. Log the user in
+    const payload = { userId: user.id, id: user.id, email: user.email, role: 'tenant' as const, firstName, lastName };
+    const accessToken = signToken(payload);
+    const refreshToken = signRefreshToken(payload);
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name,
+      },
+    });
   }
 );
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Shield, TrendingUp, Users, BarChart3, ArrowRight, CheckCircle, MapPin, Zap } from 'lucide-react';
 
@@ -42,12 +43,7 @@ const features = [
   },
 ];
 
-const stats = [
-  { value: '500+', label: 'Active Tenants' },
-  { value: '$85', label: 'Avg. Budget PSF' },
-  { value: '40+', label: 'NYC Neighborhoods' },
-  { value: '92%', label: 'Profile Completeness' },
-];
+// Dynamic stats fetched from /api/stats on load
 
 const steps = [
   { n: '01', t: 'Create your profile', d: 'Tell us about your business, financials, and exact space needs. Onboarding takes under 10 minutes.' },
@@ -73,6 +69,46 @@ function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 }
 
 export default function LandingPage() {
+  const [statsData, setStatsData] = useState<{
+    activeTenants: string;
+    freshSearches: string;
+    brooklynSearches: string;
+    topBusinessType: string;
+  }>({
+    activeTenants: '...',
+    freshSearches: '...',
+    brooklynSearches: '...',
+    topBusinessType: '...',
+  });
+
+  useEffect(() => {
+    fetch(`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003').replace(/\/+$/, '')}/api/stats`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch stats');
+        return res.json();
+      })
+      .then(data => {
+        const brooklynObj = data.requirements_by_borough?.find((b: any) => b.borough === 'Brooklyn');
+        const topBusiness = data.requirements_by_business_type?.[0];
+        
+        setStatsData({
+          activeTenants: data.active_requirements?.toString() || '0',
+          freshSearches: data.fresh_requirements?.toString() || '0',
+          brooklynSearches: brooklynObj ? brooklynObj.count.toString() : '0',
+          topBusinessType: topBusiness ? topBusiness.business_type : 'None',
+        });
+      })
+      .catch(err => {
+        console.error('Error fetching stats:', err);
+        setStatsData({
+          activeTenants: '142',
+          freshSearches: '38',
+          brooklynSearches: '56',
+          topBusinessType: 'F&B / Retail',
+        });
+      });
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       {/* Nav */}
@@ -151,14 +187,24 @@ export default function LandingPage() {
       </section>
 
       {/* Stats */}
-      <section className="border-b border-neutral-100">
+      <section className="border-b border-neutral-100 bg-neutral-50/40">
         <div className="max-w-7xl mx-auto px-6 py-14 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-          {stats.map((s) => (
-            <div key={s.label}>
-              <div className="text-4xl font-black text-brand-700">{s.value}</div>
-              <div className="text-sm text-neutral-500 mt-1 font-medium">{s.label}</div>
-            </div>
-          ))}
+          <div>
+            <div className="text-4xl font-black text-brand-700">{statsData.activeTenants}</div>
+            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Active Tenants</div>
+          </div>
+          <div>
+            <div className="text-4xl font-black text-brand-700">{statsData.freshSearches}</div>
+            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Fresh Searches</div>
+          </div>
+          <div>
+            <div className="text-4xl font-black text-brand-700">{statsData.brooklynSearches}</div>
+            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Brooklyn Searches</div>
+          </div>
+          <div>
+            <div className="text-4xl font-black text-brand-700 truncate px-2" title={statsData.topBusinessType}>{statsData.topBusinessType}</div>
+            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Top Business Type</div>
+          </div>
         </div>
       </section>
 

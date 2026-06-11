@@ -142,20 +142,42 @@ export class ScoringService {
 
   static async computeAndSave(profileId: string): Promise<void> {
     try {
-      const result = await query<TenantData>(
-        `SELECT tp.id, tp.revenue_range, tp.credit_score_range, tp.funding_status,
-                tp.has_guarantor, tp.years_in_operation, tp.number_of_locations,
-                tp.industry, tp.space_use_type,
-                tsr.sqft_min, tsr.sqft_max, tsr.budget_psf_min, tsr.budget_psf_max,
-                tsr.preferred_neighborhoods
-         FROM tenant_profiles tp
-         LEFT JOIN tenant_space_requirements tsr ON tsr.tenant_profile_id = tp.id
-         WHERE tp.id = $1`,
+      const result = await query<any>(
+        `SELECT id, business_type AS industry, (space_types->>0) AS space_use_type,
+                location_count AS number_of_locations, min_square_feet AS sqft_min,
+                max_square_feet AS sqft_max, min_monthly_budget, max_monthly_budget,
+                neighborhoods
+         FROM tenant_requirements
+         WHERE id = $1`,
         [profileId]
       );
 
       if (result.rows.length === 0) return;
-      const data = result.rows[0];
+      const row = result.rows[0];
+
+      const preferred_neighborhoods = Array.isArray(row.neighborhoods) ? row.neighborhoods : [];
+
+      let budget_psf_max = null;
+      if (row.max_monthly_budget && row.max_square_feet && row.max_square_feet > 0) {
+        budget_psf_max = Math.round((row.max_monthly_budget * 12) / row.max_square_feet);
+      }
+
+      const data: TenantData = {
+        id: row.id,
+        revenue_range: null,
+        credit_score_range: null,
+        funding_status: null,
+        has_guarantor: null,
+        years_in_operation: null,
+        number_of_locations: row.number_of_locations || 1,
+        industry: row.industry || 'Other',
+        space_use_type: row.space_use_type || 'office',
+        sqft_min: row.sqft_min,
+        sqft_max: row.sqft_max,
+        budget_psf_min: null,
+        budget_psf_max,
+        preferred_neighborhoods,
+      };
 
       const financial = this.computeFinancialStrength(data);
       const expansion = this.computeExpansionLikelihood(data);
@@ -192,10 +214,10 @@ export class ScoringService {
   }
 
   static async recomputeAll(): Promise<void> {
-    const profiles = await query<{ id: string }>(
-      'SELECT id FROM tenant_profiles'
+    const requirements = await query<{ id: string }>(
+      'SELECT id FROM tenant_requirements'
     );
-    await Promise.all(profiles.rows.map((p) => this.computeAndSave(p.id)));
-    logger.info(`Recomputed scores for ${profiles.rows.length} tenant profiles`);
+    await Promise.all(requirements.rows.map((r) => this.computeAndSave(r.id)));
+    logger.info(`Recomputed scores for ${requirements.rows.length} tenant requirements`);
   }
 }

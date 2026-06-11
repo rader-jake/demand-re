@@ -116,6 +116,22 @@ export const adminApi = {
   getDemandHeatmap: (period?: number) => api.get('/admin/analytics/demand-heatmap', { params: { period } }),
   getTenantInsights: () => api.get('/admin/analytics/tenant-insights'),
   exportData: (type: string) => api.get('/admin/analytics/export', { params: { type } }),
+
+  // Requirements & Match Desk
+  getLeads: (params: Record<string, unknown>) => api.get('/admin/requirements', { params }),
+  getLead: (id: string) => api.get(`/admin/requirements/${id}`),
+  updateLeadStatus: (id: string, leadStatus: string) => api.patch(`/admin/requirements/${id}`, { lead_status: leadStatus }),
+  createMatch: (id: string, match: Record<string, unknown>) => api.post(`/admin/requirements/${id}/matches`, match),
+  updateMatch: (matchId: string, match: Record<string, unknown>) => api.patch(`/admin/matches/${matchId}`, match),
+  deleteMatch: (matchId: string) => api.delete(`/admin/matches/${matchId}`),
+  sendMatches: (id: string, matchIds: string[]) => api.post(`/admin/requirements/${id}/send-matches`, { matchIds }),
+};
+
+// Me
+export const meApi = {
+  getRequirement: () => api.get('/me/requirement'),
+  updateRequirement: (data: Record<string, any>) => api.patch('/me/requirement', data),
+  confirmRequirement: () => api.post('/me/requirement/confirm'),
 };
 
 // Analytics

@@ -54,8 +54,11 @@ export interface TenantProfile {
   sqftMax?: number;
   budgetPsfMin?: number;
   budgetPsfMax?: number;
+  budgetMonthlyMin?: number;
+  budgetMonthlyMax?: number;
   leaseTermPreference?: LeaseTermPref;
   targetMoveInDate?: string;
+  timelineNotes?: string;
   requiresVenting?: boolean;
   requiresFrontage?: boolean;
   requiresElevator?: boolean;
@@ -65,6 +68,8 @@ export interface TenantProfile {
   expansionLikelihoodScore?: number;
   marketDesirabilityScore?: number;
   desirabilityIndex?: number;
+  freshnessStatus?: string;
+  updatedAt?: string;
   // User info
   firstName?: string;
   lastName?: string;
@@ -173,10 +178,18 @@ export const NYC_NEIGHBORHOODS = [
 ];
 
 export const INDUSTRIES = [
-  'Food & Beverage', 'Retail', 'Fashion & Apparel', 'Health & Fitness',
-  'Healthcare & Medical', 'Technology', 'Finance & Banking', 'Creative & Design',
-  'Education', 'Beauty & Wellness', 'Entertainment', 'Professional Services',
-  'Real Estate', 'Non-Profit', 'Government', 'Other',
+  'Restaurant / Food Service',
+  'Cafe / Coffee / Bakery',
+  'Retail',
+  'Fitness / Wellness',
+  'Medical / Dental',
+  'Beauty / Med Spa',
+  'Office',
+  'Childcare / Education',
+  'Entertainment / Experiential',
+  'Industrial / Warehouse',
+  'Hotel / Hospitality',
+  'Other',
 ];
 
 export const REVENUE_RANGE_LABELS: Record<RevenueRange, string> = {

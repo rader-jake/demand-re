@@ -14,7 +14,20 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     adminApi.getUsers({})
-      .then(res => setUsers(res.data))
+      .then(res => {
+        const rawUsers = res.data.users || (Array.isArray(res.data) ? res.data : []);
+        const normalized = rawUsers.map((u: any) => ({
+          id: u.id,
+          email: u.email,
+          firstName: u.firstName || u.first_name || '',
+          lastName: u.lastName || u.last_name || '',
+          role: u.role,
+          isActive: u.isActive !== undefined ? u.isActive : u.is_active,
+          isVerified: u.isVerified !== undefined ? u.isVerified : u.is_verified,
+          createdAt: u.createdAt || u.created_at || new Date().toISOString(),
+        }));
+        setUsers(normalized);
+      })
       .catch(() => toast.error('Failed to load users'))
       .finally(() => setLoading(false));
   }, []);

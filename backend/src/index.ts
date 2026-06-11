@@ -18,6 +18,8 @@ import adminRoutes from './routes/admin';
 import analyticsRoutes from './routes/analytics';
 import billingRoutes from './routes/billing';
 import webhookRoutes from './routes/webhooks';
+import statsRoutes from './routes/stats';
+import meRoutes from './routes/me';
 import logger from './utils/logger';
 
 const app = express();
@@ -112,6 +114,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/me', meRoutes);
 
 // 404 handler (must be registered after all valid routes)
 app.use((_req, res) => {

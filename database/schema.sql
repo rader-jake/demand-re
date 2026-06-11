@@ -441,6 +441,66 @@ CREATE TRIGGER trg_deals_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
+-- TENANT REQUIREMENTS
+-- ============================================================
+
+CREATE TABLE tenant_requirements (
+  id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  source                  TEXT,
+  source_lead_id          TEXT,
+  full_name               TEXT,
+  email                   TEXT,
+  phone                   TEXT,
+  business_type           TEXT,
+  operating_status        TEXT,
+  location_count          INTEGER DEFAULT 1,
+  boroughs                JSONB,
+  neighborhoods           JSONB,
+  location_flexibility    TEXT,
+  space_types             JSONB,
+  min_square_feet         INTEGER,
+  max_square_feet         INTEGER,
+  ideal_square_feet       INTEGER,
+  min_monthly_budget      INTEGER,
+  max_monthly_budget      INTEGER,
+  budget_flexibility      TEXT,
+  move_timeline_label     TEXT,
+  target_move_start_date  DATE,
+  target_move_end_date    DATE,
+  urgency_status          TEXT,
+  ideal_space_description TEXT,
+  contact_permission      BOOLEAN,
+  status                  TEXT,
+  freshness_status        TEXT,
+  budget_range_label      TEXT,
+  square_feet_range_label TEXT,
+  user_id                 UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_confirmed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_tenant_requirements_email ON tenant_requirements(email);
+CREATE INDEX idx_tenant_requirements_user_id ON tenant_requirements(user_id);
+
+CREATE TRIGGER trg_tenant_requirements_updated_at
+  BEFORE UPDATE ON tenant_requirements
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- ACCOUNT ACTIVATIONS
+-- ============================================================
+
+CREATE TABLE account_activations (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         TEXT UNIQUE NOT NULL,
+  token         TEXT NOT NULL,
+  is_completed  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at    TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days'
+);
+
+-- ============================================================
 -- META LEAD ADS INGESTION
 -- ============================================================
 
@@ -482,6 +542,42 @@ CREATE INDEX idx_meta_leads_user_id ON meta_leads(user_id);
 
 CREATE TRIGGER trg_meta_leads_updated_at
   BEFORE UPDATE ON meta_leads
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- TENANT MATCHES
+-- ============================================================
+
+CREATE TABLE tenant_matches (
+  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  lead_id             UUID REFERENCES meta_leads(id) ON DELETE CASCADE,
+  requirement_id      UUID REFERENCES tenant_requirements(id) ON DELETE CASCADE,
+  listing_title       TEXT,
+  listing_url         TEXT NOT NULL,
+  address             TEXT,
+  city                TEXT,
+  state               TEXT,
+  neighborhood        TEXT,
+  square_feet         TEXT,
+  rent                TEXT,
+  space_type          TEXT,
+  broker_name         TEXT,
+  broker_phone        TEXT,
+  broker_email        TEXT,
+  source              TEXT DEFAULT 'manual',
+  admin_notes         TEXT,
+  match_score         INTEGER,
+  verification_status TEXT DEFAULT 'needs_review',
+  tenant_sent         BOOLEAN DEFAULT false,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_tenant_matches_lead_id ON tenant_matches(lead_id);
+CREATE INDEX idx_tenant_matches_requirement_id ON tenant_matches(requirement_id);
+
+CREATE TRIGGER trg_tenant_matches_updated_at
+  BEFORE UPDATE ON tenant_matches
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================

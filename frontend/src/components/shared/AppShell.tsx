@@ -37,6 +37,7 @@ const LANDLORD_NAV: NavItem[] = [
 
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { href: '/admin/requirements', label: 'Requirements', icon: Search },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
 ];

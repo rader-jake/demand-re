@@ -43,8 +43,30 @@ export default function AdminDashboard() {
       adminApi.getOverview(),
       adminApi.getUsers({ page: 1, limit: 8, sortBy: 'created_at', sortOrder: 'desc' }),
     ]).then(([overviewRes, usersRes]) => {
-      setOverview(overviewRes.data.overview);
-      setRecentUsers(usersRes.data.users ?? []);
+      const data = overviewRes.data;
+      const overviewObj: AdminOverview = {
+        totalUsers: parseInt(data.users?.total_users || '0', 10),
+        totalTenants: parseInt(data.users?.total_tenants || '0', 10),
+        totalLandlords: parseInt(data.users?.total_landlords || '0', 10),
+        activeProfiles: parseInt(data.tenants?.active_profiles || '0', 10),
+        totalInterests: parseInt(data.interests?.total || '0', 10),
+        totalDeals: 0,
+        newUsersToday: 0,
+        newUsersThisWeek: parseInt(data.users?.new_this_week || '0', 10),
+      };
+      setOverview(overviewObj);
+
+      const normalizedUsers = (usersRes.data.users ?? []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName || u.first_name || '',
+        lastName: u.lastName || u.last_name || '',
+        role: u.role,
+        isActive: u.isActive !== undefined ? u.isActive : u.is_active,
+        isVerified: u.isVerified !== undefined ? u.isVerified : u.is_verified,
+        createdAt: u.createdAt || u.created_at || new Date().toISOString(),
+      }));
+      setRecentUsers(normalizedUsers);
     }).catch((err) => toast.error(getErrorMessage(err)))
       .finally(() => setLoading(false));
   }, []);
