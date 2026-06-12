@@ -54,7 +54,8 @@ function calculateMoveDates(timeline: string): { start: Date | null; end: Date |
 // GET /api/me/requirement
 router.get('/requirement', authenticate, requireTenant, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const result = await query(
+    // 1. First find by user_id
+    let result = await query(
       `SELECT tr.*, ts.financial_strength_score, ts.expansion_likelihood_score,
               ts.market_desirability_score, ts.desirability_index
        FROM tenant_requirements tr
@@ -65,6 +66,50 @@ router.get('/requirement', authenticate, requireTenant, async (req: AuthRequest,
       [req.user!.userId]
     );
 
+    // 2. If none, fallback to matching lower(email)
+    if (result.rows.length === 0) {
+      const email = req.user!.email;
+      if (email) {
+        const normalizedEmail = email.trim().toLowerCase();
+        
+        // Find requirement by email where user_id is null
+        const emailResult = await query(
+          `SELECT id FROM tenant_requirements 
+           WHERE LOWER(email) = $1 AND user_id IS NULL
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [normalizedEmail]
+        );
+
+        if (emailResult.rows.length > 0) {
+          const reqId = emailResult.rows[0].id;
+          
+          // Link this requirement to user_id
+          await query(
+            `UPDATE tenant_requirements SET user_id = $1, updated_at = NOW() WHERE id = $2`,
+            [req.user!.userId, reqId]
+          );
+          
+          // Also link meta_leads to user_id if any exist with this email
+          await query(
+            `UPDATE meta_leads SET user_id = $1, lead_status = 'linked', updated_at = NOW() 
+             WHERE LOWER(email) = $2 AND user_id IS NULL`,
+            [req.user!.userId, normalizedEmail]
+          );
+
+          // Re-fetch with the user_id linked
+          result = await query(
+            `SELECT tr.*, ts.financial_strength_score, ts.expansion_likelihood_score,
+                    ts.market_desirability_score, ts.desirability_index
+             FROM tenant_requirements tr
+             LEFT JOIN tenant_scores ts ON ts.tenant_profile_id = tr.id
+             WHERE tr.id = $1`,
+            [reqId]
+          );
+        }
+      }
+    }
+
     if (result.rows.length === 0) {
       res.json({ requirement: null });
       return;
@@ -72,6 +117,7 @@ router.get('/requirement', authenticate, requireTenant, async (req: AuthRequest,
 
     res.json({ requirement: result.rows[0] });
   } catch (err: any) {
+    console.error('Error fetching/linking requirement:', err);
     res.status(500).json({ error: err.message });
   }
 });

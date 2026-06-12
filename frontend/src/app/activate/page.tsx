@@ -49,6 +49,9 @@ function ActivateForm() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [name, setName] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -57,6 +60,29 @@ function ActivateForm() {
       token: tokenParam,
     },
   });
+
+  const { useEffect } = require('react');
+
+  useEffect(() => {
+    if (!emailParam || !tokenParam) {
+      setTokenError('Email and token are required in the activation link.');
+      setChecking(false);
+      return;
+    }
+
+    api.get(`/auth/activate?email=${encodeURIComponent(emailParam)}&token=${encodeURIComponent(tokenParam)}`)
+      .then(res => {
+        if (res.data.valid) {
+          setName(res.data.name);
+        } else {
+          setTokenError(res.data.error || 'Invalid activation token.');
+        }
+      })
+      .catch(err => {
+        setTokenError(getErrorMessage(err) || 'Failed to verify activation token.');
+      })
+      .finally(() => setChecking(false));
+  }, [emailParam, tokenParam]);
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -75,6 +101,34 @@ function ActivateForm() {
       toast.error(getErrorMessage(err) || "Failed to activate account");
     }
   };
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-brand-950 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <Loader2 className="w-8 h-8 animate-spin text-white mx-auto" />
+          <p className="text-brand-300 font-medium text-sm">Verifying activation link...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (tokenError) {
+    return (
+      <div className="min-h-screen bg-brand-950 flex items-center justify-center p-6">
+        <div className="max-w-md w-full text-center space-y-6 bg-brand-900/80 border border-brand-800/60 p-8 rounded-2xl">
+          <div className="w-16 h-16 rounded-full bg-red-950 border border-red-500/30 flex items-center justify-center mx-auto text-red-500 font-extrabold text-2xl">
+            !
+          </div>
+          <h2 className="text-xl font-bold text-white">Activation Failed</h2>
+          <p className="text-brand-400 text-sm">{tokenError}</p>
+          <Link href="/login" className="w-full btn-lg font-bold inline-block text-center btn-accent mt-2">
+            Go to Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-950 flex overflow-hidden">
@@ -133,7 +187,9 @@ function ActivateForm() {
           </div>
 
           <div className="mb-7">
-            <h1 className="text-2xl font-black text-white">Activate your account</h1>
+            <h1 className="text-2xl font-black text-white">
+              {name ? `Welcome, ${name}!` : 'Activate your account'}
+            </h1>
             <p className="text-brand-400 text-sm mt-1">Set a password to secure your tenant demand profile</p>
           </div>
 

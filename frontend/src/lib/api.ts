@@ -125,6 +125,7 @@ export const adminApi = {
   updateMatch: (matchId: string, match: Record<string, unknown>) => api.patch(`/admin/matches/${matchId}`, match),
   deleteMatch: (matchId: string) => api.delete(`/admin/matches/${matchId}`),
   sendMatches: (id: string, matchIds: string[]) => api.post(`/admin/requirements/${id}/send-matches`, { matchIds }),
+  manualImport: (data: Record<string, unknown>) => api.post('/admin/requirements/manual-import', data),
 };
 
 // Me

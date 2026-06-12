@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS tenant_requirements (
   status                  TEXT DEFAULT 'New',
   freshness_status        TEXT DEFAULT 'Fresh',
   last_confirmed_at       TIMESTAMPTZ DEFAULT NOW(),
+  raw_payload             JSONB,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -132,6 +133,7 @@ ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS contact_permission BOOL
 ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'New';
 ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS freshness_status TEXT DEFAULT 'Fresh';
 ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS last_confirmed_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS raw_payload JSONB;
 ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 

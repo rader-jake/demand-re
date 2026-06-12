@@ -13,7 +13,7 @@ const router = Router();
 router.post(
   '/register',
   [
-    body('email').isEmail().normalizeEmail(),
+    body('email').isEmail(),
     body('password').isLength({ min: 8 }).matches(/^(?=.*[A-Z])(?=.*\d)/),
     body('role').isIn(['tenant', 'landlord']),
     body('firstName').trim().notEmpty(),
@@ -22,8 +22,9 @@ router.post(
   validate,
   async (req: Request, res: Response): Promise<void> => {
     const { email, password, role, firstName, lastName, phone } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
+    const existing = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
     if (existing.rows.length > 0) {
       res.status(409).json({ error: 'Email already registered' });
       return;
@@ -33,7 +34,7 @@ router.post(
     const result = await query<{ id: string; role: string }>(
       `INSERT INTO users (email, password_hash, role, first_name, last_name, phone)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, role, email, first_name, last_name`,
-      [email, passwordHash, role, firstName, lastName, phone ?? null]
+      [normalizedEmail, passwordHash, role, firstName, lastName, phone ?? null]
     );
 
     const user = result.rows[0] as Record<string, string>;
@@ -44,8 +45,8 @@ router.post(
         id: string;
         meta_lead_id: string;
       }>(
-        'SELECT id, meta_lead_id FROM meta_leads WHERE LOWER(email) = LOWER($1) ORDER BY created_time DESC LIMIT 1',
-        [email]
+        'SELECT id, meta_lead_id FROM meta_leads WHERE LOWER(email) = $1 ORDER BY created_time DESC LIMIT 1',
+        [normalizedEmail]
       );
 
       if (leadResult.rows.length > 0) {
@@ -62,9 +63,9 @@ router.post(
           const linkResult = await query<{ id: string }>(
             `UPDATE tenant_requirements
              SET user_id = $1
-             WHERE source_lead_id = $2 OR LOWER(email) = LOWER($3)
+             WHERE source_lead_id = $2 OR LOWER(email) = $3
              RETURNING id`,
-            [user.id, lead.meta_lead_id, email]
+            [user.id, lead.meta_lead_id, normalizedEmail]
           );
 
           if (linkResult.rows.length > 0) {
@@ -76,8 +77,8 @@ router.post(
       } else if (role === 'tenant') {
         // Link any matching tenant requirements directly by email
         const linkResult = await query<{ id: string }>(
-          "UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = LOWER($2) AND user_id IS NULL RETURNING id",
-          [user.id, email]
+          "UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = $2 AND user_id IS NULL RETURNING id",
+          [user.id, normalizedEmail]
         );
 
         if (linkResult.rows.length > 0) {
@@ -90,7 +91,7 @@ router.post(
       console.error('Failed to link lead/requirement during registration:', linkError);
     }
 
-    const payload = { userId: user.id, id: user.id, email, role: user.role as 'tenant' | 'landlord' | 'admin', firstName, lastName };
+    const payload = { userId: user.id, id: user.id, email: normalizedEmail, role: user.role as 'tenant' | 'landlord' | 'admin', firstName, lastName };
     const accessToken = signToken(payload);
     const refreshToken = signRefreshToken(payload);
 
@@ -105,15 +106,16 @@ router.post(
 // POST /api/auth/login
 router.post(
   '/login',
-  [body('email').isEmail().normalizeEmail(), body('password').notEmpty()],
+  [body('email').isEmail(), body('password').notEmpty()],
   validate,
   async (req: Request, res: Response): Promise<void> => {
     const { email, password } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
 
     const result = await query<Record<string, string>>(
       `SELECT id, email, password_hash, role, first_name, last_name, is_active
-       FROM users WHERE email = $1`,
-      [email]
+       FROM users WHERE LOWER(email) = $1`,
+      [normalizedEmail]
     );
 
     if (result.rows.length === 0) {
@@ -212,11 +214,65 @@ router.put('/me', authenticate,
   }
 );
 
+// GET /api/auth/activate - Verify token and get name
+router.get('/activate', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, token } = req.query as Record<string, string>;
+    if (!email || !token) {
+      res.status(400).json({ error: 'Email and token are required' });
+      return;
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. Verify activation record
+    const activationResult = await query(
+      `SELECT * FROM account_activations
+       WHERE LOWER(email) = $1 AND token = $2 AND is_completed = FALSE`,
+      [normalizedEmail, token]
+    );
+
+    if (activationResult.rows.length === 0) {
+      res.json({ valid: false, error: 'Invalid or already completed activation token' });
+      return;
+    }
+
+    const activation = activationResult.rows[0] as { expires_at: Date };
+    if (new Date(activation.expires_at) < new Date()) {
+      res.json({ valid: false, error: 'Activation token has expired' });
+      return;
+    }
+
+    // Check if user already exists
+    const existingUser = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+    if (existingUser.rows.length > 0) {
+      res.json({ valid: false, error: 'Account has already been activated' });
+      return;
+    }
+
+    // 2. Fetch full name
+    const reqResult = await query<{ full_name: string | null }>(
+      'SELECT full_name FROM tenant_requirements WHERE LOWER(email) = $1 ORDER BY created_at DESC LIMIT 1',
+      [normalizedEmail]
+    );
+
+    const fullName = reqResult.rows[0]?.full_name || null;
+
+    res.json({
+      valid: true,
+      email: normalizedEmail,
+      name: fullName
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/activate
 router.post(
   '/activate',
   [
-    body('email').isEmail().normalizeEmail(),
+    body('email').isEmail(),
     body('token').notEmpty(),
     body('password').isLength({ min: 8 }).matches(/^(?=.*[A-Z])(?=.*\d)/),
   ],
@@ -280,8 +336,9 @@ router.post(
     );
     const user = userResult.rows[0];
 
-    // 4. Link all requirements with matching email
+    // 4. Link all requirements and leads with matching email
     await query('UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = $2', [user.id, normalizedEmail]);
+    await query("UPDATE meta_leads SET user_id = $1, lead_status = 'linked' WHERE LOWER(email) = $2", [user.id, normalizedEmail]);
 
     // 5. Mark activation complete
     await query('UPDATE account_activations SET is_completed = TRUE WHERE LOWER(email) = $1', [normalizedEmail]);

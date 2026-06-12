@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { query } from '../config/database';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { ScoringService } from '../services/scoring';
 
 const router = Router();
 
@@ -525,5 +526,83 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
     },
   });
 });
+
+// POST /api/admin/requirements/manual-import
+router.post(
+  '/requirements/manual-import',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const fields = req.body;
+    const { email } = fields;
+    
+    if (!email) {
+      res.status(400).json({ error: 'Email is required' });
+      return;
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check if user already exists
+    const userRes = await query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+    const userId = userRes.rows.length > 0 ? userRes.rows[0].id : null;
+
+    const boroughs = fields.boroughs ? (typeof fields.boroughs === 'string' ? fields.boroughs : JSON.stringify(fields.boroughs)) : '[]';
+    const neighborhoods = fields.neighborhoods ? (typeof fields.neighborhoods === 'string' ? fields.neighborhoods : JSON.stringify(fields.neighborhoods)) : '[]';
+    const spaceTypes = fields.space_types ? (typeof fields.space_types === 'string' ? fields.space_types : JSON.stringify(fields.space_types)) : '[]';
+
+    const insertRes = await query<{ id: string }>(
+      `INSERT INTO tenant_requirements (
+        source, source_lead_id, full_name, email, phone, business_type, operating_status,
+        location_count, boroughs, neighborhoods, location_flexibility, space_types,
+        min_square_feet, max_square_feet, ideal_square_feet,
+        min_monthly_budget, max_monthly_budget, budget_flexibility,
+        move_timeline_label, target_move_start_date, target_move_end_date,
+        urgency_status, ideal_space_description, contact_permission,
+        status, freshness_status, user_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+      RETURNING *`,
+      [
+        'manual_import',
+        fields.source_lead_id || 'manual_' + Date.now(),
+        fields.full_name || 'Anonymous',
+        normalizedEmail,
+        fields.phone || null,
+        fields.business_type || 'Other',
+        fields.operating_status || 'Currently Operating',
+        fields.location_count !== undefined ? parseInt(fields.location_count, 10) : 1,
+        boroughs,
+        neighborhoods,
+        fields.location_flexibility || 'flexible',
+        spaceTypes,
+        fields.min_square_feet !== undefined ? parseInt(fields.min_square_feet, 10) : null,
+        fields.max_square_feet !== undefined ? parseInt(fields.max_square_feet, 10) : null,
+        fields.ideal_square_feet !== undefined ? parseInt(fields.ideal_square_feet, 10) : null,
+        fields.min_monthly_budget !== undefined ? parseInt(fields.min_monthly_budget, 10) : null,
+        fields.max_monthly_budget !== undefined ? parseInt(fields.max_monthly_budget, 10) : null,
+        fields.budget_flexibility || 'flexible',
+        fields.move_timeline_label || 'Just exploring',
+        fields.target_move_start_date || null,
+        fields.target_move_end_date || null,
+        fields.urgency_status || 'medium',
+        fields.ideal_space_description || null,
+        fields.contact_permission !== undefined ? !!fields.contact_permission : false,
+        fields.status || 'New',
+        fields.freshness_status || 'Fresh',
+        userId
+      ]
+    );
+
+    const newReq = insertRes.rows[0] as any;
+    
+    // Compute scoring
+    try {
+      await ScoringService.computeAndSave(newReq.id);
+    } catch (scoreErr) {
+      console.error('Failed to calculate scoring for manual import:', scoreErr);
+    }
+
+    res.status(201).json({ requirement: newReq });
+  }
+);
 
 export default router;

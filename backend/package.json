@@ -11,7 +11,9 @@
     "seed": "tsx src/scripts/seed.ts",
     "lint": "eslint src --ext .ts",
     "db:migrate": "tsx src/scripts/migrate.ts",
-    "db:check": "tsx src/scripts/check-schema.ts"
+    "db:check": "tsx src/scripts/check-schema.ts",
+    "backfill:requirements": "tsx src/scripts/backfillRequirementsFromMetaLeads.ts",
+    "import:meta-csv": "tsx src/scripts/importMetaCsvToRequirements.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -33,10 +33,10 @@ export default function TenantProfilePage() {
   const handleUpdate = async (payload: any) => {
     try {
       await meApi.updateRequirement(payload);
-      toast.success('Space requirement updated successfully');
+      toast.success(requirementExists ? 'Space requirement updated successfully' : 'Space requirement created successfully');
       router.push('/tenant/dashboard');
     } catch (err) {
-      toast.error(getErrorMessage(err) || 'Failed to update requirement');
+      toast.error(getErrorMessage(err) || 'Failed to save requirement');
       throw err;
     }
   };
@@ -45,23 +45,6 @@ export default function TenantProfilePage() {
     return (
       <div className="flex items-center justify-center h-96">
         <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
-      </div>
-    );
-  }
-
-  if (!requirementExists) {
-    return (
-      <div className="max-w-xl mx-auto text-center py-20 px-4">
-        <div className="w-20 h-20 rounded-3xl bg-brand-50 flex items-center justify-center mx-auto mb-6">
-          <ClipboardList className="w-10 h-10 text-brand-600" />
-        </div>
-        <h2 className="text-2xl font-bold text-neutral-900 mb-3">No requirement found</h2>
-        <p className="text-neutral-500 mb-8 leading-relaxed">
-          You do not have a saved space requirement yet. Submit your space needs to start matching with landlords and property owners.
-        </p>
-        <Link href="/tenant/dashboard" className="btn-primary inline-flex items-center gap-2">
-          <ArrowLeft className="w-4 h-4" /> Go to Dashboard
-        </Link>
       </div>
     );
   }
@@ -75,9 +58,14 @@ export default function TenantProfilePage() {
             <ClipboardList className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-neutral-900">My Space Requirement</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight text-neutral-900">
+              {requirementExists ? 'My Space Requirement' : 'Create Space Requirement'}
+            </h1>
             <p className="text-neutral-500 text-sm mt-0.5">
-              This is the demand profile landlords and property owners use to understand what type of space you&apos;re looking for.
+              {requirementExists 
+                ? "This is the demand profile landlords and property owners use to understand what type of space you're looking for."
+                : "Submit your space needs to start matching with landlords and property owners."
+              }
             </p>
           </div>
         </div>
@@ -94,6 +82,7 @@ export default function TenantProfilePage() {
         mode="profile"
         initialValues={requirement}
         onSubmit={handleUpdate}
+        submitLabel={requirementExists ? 'Save Space Requirement' : 'Create Space Requirement'}
       />
     </div>
   );

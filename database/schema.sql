@@ -475,6 +475,7 @@ CREATE TABLE tenant_requirements (
   budget_range_label      TEXT,
   square_feet_range_label TEXT,
   user_id                 UUID REFERENCES users(id) ON DELETE SET NULL,
+  raw_payload             JSONB,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_confirmed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
