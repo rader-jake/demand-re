@@ -13,6 +13,7 @@
     "db:migrate": "tsx src/scripts/migrate.ts",
     "db:check": "tsx src/scripts/check-schema.ts",
     "backfill:requirements": "tsx src/scripts/backfillRequirementsFromMetaLeads.ts",
+    "backfill:descriptions": "tsx src/scripts/backfillDescriptions.ts",
     "import:meta-csv": "tsx src/scripts/importMetaCsvToRequirements.ts"
   },
   "dependencies": {

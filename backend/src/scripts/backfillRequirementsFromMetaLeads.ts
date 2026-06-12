@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../config/database';
-import { ScoringService } from '../services/scoring';
 import { normalizeBusinessType, normalizeOperatingStatus } from '../utils/normalize';
 
 function mapSpaceUseType(val: string | null): string {
@@ -218,11 +217,72 @@ async function run() {
         }
       }
 
-      // Compute scoring
-      await ScoringService.computeAndSave(requirementId);
+      // (Scoring disabled - tenant_scores requires tenant_profiles FK)
+
     }
 
-    console.log('Backfill finished successfully:');
+    // --- Description backfill pass ---
+    // For any tenant_requirement with a null description, try to extract
+    // the value from meta_leads.raw_payload using all known Facebook field names.
+    console.log('\nRunning description backfill pass...');
+    const descFieldNames = [
+      'describe_your_ideal_space._(example:_bright_corner_storefront_in_williamsburg_for_a_pilates_concept_with_high_foot_traffic)',
+      'describe_your_ideal_space',
+      'ideal_space_description',
+      'describe your ideal space',
+    ];
+
+    const missingDescRes = await client.query(`
+      SELECT tr.id AS req_id, ml.raw_payload, ml.ideal_space_description AS ml_description
+      FROM tenant_requirements tr
+      JOIN meta_leads ml ON (
+        ml.meta_lead_id = tr.source_lead_id
+        OR LOWER(ml.email) = LOWER(tr.email)
+      )
+      WHERE (tr.ideal_space_description IS NULL OR tr.ideal_space_description = '')
+        AND (
+          ml.ideal_space_description IS NOT NULL
+          OR ml.raw_payload IS NOT NULL
+        )
+    `);
+
+    let descFixed = 0;
+    for (const row of missingDescRes.rows) {
+      // 1. Try the already-parsed meta_leads column
+      let description: string | null = row.ml_description || null;
+
+      // 2. Fall back to raw_payload key scan
+      if (!description && row.raw_payload) {
+        const payload = typeof row.raw_payload === 'string' ? JSON.parse(row.raw_payload) : row.raw_payload;
+        for (const key of descFieldNames) {
+          const val = payload[key] || payload[key.toLowerCase()];
+          if (val && val.trim()) {
+            description = val.trim();
+            break;
+          }
+          // Also try partial key match
+          const matchingKey = Object.keys(payload).find(k =>
+            k.toLowerCase().includes('ideal_space') || k.toLowerCase().includes('describe_your_ideal')
+          );
+          if (matchingKey && payload[matchingKey]?.trim()) {
+            description = payload[matchingKey].trim();
+            break;
+          }
+        }
+      }
+
+      if (description) {
+        await client.query(
+          `UPDATE tenant_requirements SET ideal_space_description = $1, updated_at = NOW() WHERE id = $2`,
+          [description, row.req_id]
+        );
+        descFixed++;
+      }
+    }
+    console.log(`Description backfill: fixed ${descFixed} record(s) with missing descriptions.`);
+
+    console.log('\nBackfill finished successfully:');
+
     console.log(`- Created requirements: ${created}`);
     console.log(`- Updated requirements: ${updated}`);
     console.log(`- Linked to users: ${linked}`);

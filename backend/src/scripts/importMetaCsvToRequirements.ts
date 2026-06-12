@@ -419,12 +419,35 @@ async function run() {
   const idxBudget = getColIndex(['what_monthly_budget_range_are_you_comfortable_with?', 'monthly_budget', 'budget']);
   const idxTimeline = getColIndex(['when_are_you_hoping_to_move?', 'move_timeline', 'timeline']);
   const idxContactPermission = getColIndex(['would_you_like_landlords_and_property_owners_to_contact_you_with_matching_opportunities?', 'wants_contact', 'contact_permission']);
-  const idxIdealSpace = getColIndex(['describe_your_ideal_space...', 'ideal_space_description']);
+  const idxIdealSpace = getColIndex([
+    'describe_your_ideal_space._(example:_bright_corner_storefront_in_williamsburg_for_a_pilates_concept_with_high_foot_traffic)',
+    'describe_your_ideal_space...',
+    'describe_your_ideal_space',
+    'ideal_space_description',
+    'ideal space description',
+    'describe your ideal space',
+  ]);
+
+  // Log column discovery to catch header mismatches early
+  console.log('\n--- Column Discovery ---');
+  console.log(`  email:               col ${idxEmail}`);
+  console.log(`  full_name:           col ${idxFullName}`);
+  console.log(`  business_type:       col ${idxBusinessType}`);
+  console.log(`  operating_status:    col ${idxOperatingStatus}`);
+  console.log(`  location:            col ${idxLocation}`);
+  console.log(`  space_type:          col ${idxSpaceType}`);
+  console.log(`  space_size:          col ${idxSpaceSize}`);
+  console.log(`  budget:              col ${idxBudget}`);
+  console.log(`  timeline:            col ${idxTimeline}`);
+  console.log(`  contact_permission:  col ${idxContactPermission}`);
+  console.log(`  ideal_space_desc:    col ${idxIdealSpace}${idxIdealSpace === -1 ? ' ⚠️  NOT FOUND - descriptions will be null' : ' ✓'}`);
+  console.log('------------------------\n');
 
   if (idxEmail === -1) {
     console.error('Error: CSV must contain an "email" column.');
     process.exit(1);
   }
+
 
   const client = await pool.connect();
 
@@ -433,6 +456,7 @@ async function run() {
   let skipped = 0;
   let failed = 0;
   let tokensGenerated = 0;
+
 
   try {
     for (let i = 0; i < dataRows.length; i++) {
