@@ -226,3 +226,70 @@ export function normalizeBusinessType(input: string | null): string {
 
   return 'Other';
 }
+
+export const APPROVED_OPERATING_STATUSES = [
+  'Concept / Planning',
+  'Opening First Location',
+  'Currently Operating',
+  'Expanding To New Location',
+  'Relocating Existing Business',
+  'Franchise Operator',
+  'Other'
+];
+
+export function normalizeOperatingStatus(input: string | null): string {
+  if (!input) return 'Other';
+  const val = input.trim().toLowerCase();
+
+  const directMatches: Record<string, string> = {
+    'starting': 'Concept / Planning',
+    'conceptual concept': 'Concept / Planning',
+    'concept': 'Concept / Planning',
+    'planning': 'Concept / Planning',
+    'launching first location': 'Opening First Location',
+    'first location': 'Opening First Location',
+    'opening first location': 'Opening First Location',
+    'existing business': 'Currently Operating',
+    'currently operating': 'Currently Operating',
+    'operating': 'Currently Operating',
+    'expanding': 'Expanding To New Location',
+    'relocating existing business': 'Relocating Existing Business',
+    'relocating': 'Relocating Existing Business',
+    'relocation': 'Relocating Existing Business',
+    'franchise operator': 'Franchise Operator',
+    'franchise': 'Franchise Operator',
+    'other': 'Other'
+  };
+
+  if (directMatches[val]) {
+    return directMatches[val];
+  }
+
+  // Substring checks for fuzzy mapping
+  if (val.includes('concept') || val.includes('plan') || val.includes('start')) {
+    return 'Concept / Planning';
+  }
+  if (val.includes('first location') || val.includes('opening first') || val.includes('launching first')) {
+    return 'Opening First Location';
+  }
+  if (val.includes('currently') || val.includes('existing') || val.includes('operating')) {
+    return 'Currently Operating';
+  }
+  if (val.includes('expanding') || val.includes('expand')) {
+    return 'Expanding To New Location';
+  }
+  if (val.includes('relocating') || val.includes('relocation')) {
+    return 'Relocating Existing Business';
+  }
+  if (val.includes('franchise')) {
+    return 'Franchise Operator';
+  }
+
+  // Capitalize first letter of each word as a fallback if it matches one of the approved options
+  const matchedApproved = APPROVED_OPERATING_STATUSES.find(
+    status => status.toLowerCase() === val
+  );
+  if (matchedApproved) return matchedApproved;
+
+  return 'Other';
+}

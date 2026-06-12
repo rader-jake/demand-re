@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import logger from '../utils/logger';
+import { normalizeOperatingStatus } from '../utils/normalize';
 
 const router = Router();
 
@@ -100,7 +101,8 @@ async function processLeadDetails(leadData: any, rawPayload: any): Promise<void>
   const full_name = getFieldByKeyword(fieldData, ['full_name', 'fullname', 'name']) || null;
   const phone_number = getFieldByKeyword(fieldData, ['phone_number', 'phone', 'contact_number']) || null;
   const business_type = getFieldByKeyword(fieldData, ['business_type', 'business', 'building_or_operating', 'building', 'what_type_of_business_are_you_building_or_operating']) || null;
-  const currently_operating = getFieldByKeyword(fieldData, ['operating_status', 'operating', 'currently_operating', 'are_you_currently_operating']) || null;
+  const raw_currently_operating = getFieldByKeyword(fieldData, ['operating_status', 'operating', 'currently_operating', 'are_you_currently_operating']) || null;
+  const currently_operating = normalizeOperatingStatus(raw_currently_operating);
   const desired_location = getFieldByKeyword(fieldData, ['desired_location', 'location', 'looking', 'where_are_you_looking']) || null;
   const space_type = getFieldByKeyword(fieldData, ['space_type', 'space_use', 'space_are_you_looking_for', 'space_types', 'what_kind_of_space_are_you_looking_for']) || null;
   const space_size = getFieldByKeyword(fieldData, ['space_size', 'sqft', 'size', 'how_much_space', 'roughly_how_much_space_do_you_need']) || null;

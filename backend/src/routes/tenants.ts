@@ -117,7 +117,7 @@ router.post(
         user_id, source, full_name, email, business_type, operating_status,
         location_count, boroughs, neighborhoods, location_flexibility, space_types,
         ideal_space_description, status, freshness_status
-      ) VALUES ($1, 'web', $2, $3, $4, 'Operating', $5, '[]'::jsonb, '[]'::jsonb, 'flexible', $6, $7, 'New', 'Fresh')
+      ) VALUES ($1, 'web', $2, $3, $4, 'Currently Operating', $5, '[]'::jsonb, '[]'::jsonb, 'flexible', $6, $7, 'New', 'Fresh')
       RETURNING id`,
       [
         req.user!.userId,

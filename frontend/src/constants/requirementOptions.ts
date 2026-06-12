@@ -12,3 +12,13 @@ export const BUSINESS_TYPES = [
   "Hotel / Hospitality",
   "Other"
 ];
+
+export const OPERATING_STATUSES = [
+  "Concept / Planning",
+  "Opening First Location",
+  "Currently Operating",
+  "Expanding To New Location",
+  "Relocating Existing Business",
+  "Franchise Operator",
+  "Other"
+];

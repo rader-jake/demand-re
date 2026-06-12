@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { query } from '../config/database';
 import { authenticate, requireTenant, AuthRequest } from '../middleware/auth';
 import { ScoringService } from '../services/scoring';
-import { STANDARD_BUSINESS_TYPES } from '../utils/normalize';
+import { STANDARD_BUSINESS_TYPES, APPROVED_OPERATING_STATUSES } from '../utils/normalize';
 
 const router = Router();
 
@@ -114,6 +114,11 @@ router.patch('/requirement', authenticate, requireTenant, async (req: AuthReques
 
     if (fields.business_type !== undefined && !STANDARD_BUSINESS_TYPES.includes(fields.business_type)) {
       res.status(400).json({ error: `Invalid business type. Must be one of: ${STANDARD_BUSINESS_TYPES.join(', ')}` });
+      return;
+    }
+
+    if (fields.operating_status !== undefined && !APPROVED_OPERATING_STATUSES.includes(fields.operating_status)) {
+      res.status(400).json({ error: `Invalid operating status. Must be one of: ${APPROVED_OPERATING_STATUSES.join(', ')}` });
       return;
     }
 

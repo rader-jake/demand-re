@@ -6,6 +6,7 @@ import { Loader2, Save, Building, MapPin, Ruler, CircleDollarSign, Calendar, Che
 import { toast } from 'sonner';
 import { INDUSTRIES } from '@/types';
 import { cn } from '@/lib/utils';
+import { OPERATING_STATUSES } from '@/constants/requirementOptions';
 
 const BOROUGHS = [
   'Manhattan',
@@ -115,19 +116,11 @@ export default function SpaceRequirementForm({
   const [businessType, setBusinessType] = useState('');
   const [conceptDescription, setConceptDescription] = useState('');
   const [otherBusinessType, setOtherBusinessType] = useState('');
-  const [operatingStatus, setOperatingStatus] = useState('Operating');
+  const [operatingStatus, setOperatingStatus] = useState('Currently Operating');
   const [locationCountSelect, setLocationCountSelect] = useState('1');
 
   const indicatesFirstLocation = (status: string) => {
-    if (!status) return false;
-    const s = status.toLowerCase();
-    return (
-      s.includes('concept') ||
-      s.includes('planning') ||
-      s.includes('launching') ||
-      s.includes('opening') ||
-      s.includes('first')
-    );
+    return status === 'Concept / Planning' || status === 'Opening First Location';
   };
   const [selectedBoroughs, setSelectedBoroughs] = useState<string[]>([]);
   const [selectedNeighborhoods, setSelectedNeighborhoods] = useState<string[]>([]);
@@ -152,7 +145,7 @@ export default function SpaceRequirementForm({
       setBusinessType(initialValues.business_type || '');
       setConceptDescription(initialValues.concept_description || '');
       setOtherBusinessType(initialValues.other_business_type || '');
-      const status = initialValues.operating_status || 'Operating';
+      const status = initialValues.operating_status || 'Currently Operating';
       setOperatingStatus(status);
       
       const count = initialValues.location_count !== null && initialValues.location_count !== undefined ? initialValues.location_count : (indicatesFirstLocation(status) ? 0 : 1);
@@ -366,15 +359,11 @@ export default function SpaceRequirementForm({
               }}
               className="select"
             >
-              <option value="Operating">Currently Operating</option>
-              <option value="Expanding">Expanding Operations</option>
-              <option value="Relocating">Relocating Location</option>
-              <option value="Franchise Operator">Franchise Operator</option>
-              <option value="Launching First Location">Launching First Location</option>
-              <option value="Opening First Location">Opening First Location</option>
-              <option value="First Location">First Location</option>
-              <option value="Conceptual">Conceptual Concept</option>
-              <option value="Concept / Planning">Concept / Planning</option>
+              {OPERATING_STATUSES.map(status => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
             </select>
           </div>
 
