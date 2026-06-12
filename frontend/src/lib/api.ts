@@ -131,6 +131,8 @@ export const adminApi = {
   importLeadsPreview: (csvData: string) => api.post('/admin/import-leads/preview', { csvData }),
   importLeadsCommit: (selectedRows: any[]) => api.post('/admin/import-leads/commit', { selectedRows }),
   sendActivations: (requirementIds: string[]) => api.post('/admin/import-leads/send-activations', { requirementIds }),
+  sendActivationEmail: (id: string) => api.post(`/admin/requirements/${id}/send-activation-email`),
+  sendBulkActivationEmails: (requirementIds: string[]) => api.post('/admin/requirements/send-activation-emails', { requirementIds }),
 };
 
 // Me

@@ -4,6 +4,7 @@ import { query } from '../config/database';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
 import { ScoringService } from '../services/scoring';
 import { normalizeMetaCsvRows } from '../utils/metaCsvHelper';
+import { sendActivationEmail } from '../services/emailService';
 
 const router = Router();
 
@@ -529,6 +530,248 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   });
 });
 
+// POST /api/admin/requirements/:id/send-activation-email
+// Admin-only: Send activation email to a specific requirement lead
+router.post(
+  '/requirements/:id/send-activation-email',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { id } = req.params;
+
+    try {
+      // Find tenant_requirement by id
+      const reqResult = await query(
+        'SELECT id, full_name, email, activation_email_status FROM tenant_requirements WHERE id = $1',
+        [id]
+      );
+      if (reqResult.rows.length === 0) {
+        res.status(404).json({ error: 'Requirement not found' });
+        return;
+      }
+
+      const requirement = reqResult.rows[0] as { id: string; full_name: string; email: string; activation_email_status: string };
+      const email = (requirement.email || '').trim().toLowerCase();
+
+      // Require valid email
+      if (!email || !email.includes('@')) {
+        await query(
+          "UPDATE tenant_requirements SET activation_email_status = 'Failed', updated_at = NOW() WHERE id = $1",
+          [id]
+        );
+        res.status(400).json({ error: 'Requirement is missing a valid email address' });
+        return;
+      }
+
+      // Check if user already exists and is activated
+      const userCheck = await query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+      if (userCheck.rows.length > 0) {
+        await query(
+          "UPDATE tenant_requirements SET activation_email_status = 'Activated', updated_at = NOW() WHERE id = $1",
+          [id]
+        );
+        res.status(400).json({ error: 'A user account with this email is already registered.' });
+        return;
+      }
+
+      // Fetch or create token
+      const tokenCheck = await query(
+        `SELECT token FROM account_activations
+         WHERE LOWER(email) = $1 AND is_completed = FALSE AND expires_at > NOW()`,
+        [email]
+      );
+      let token = tokenCheck.rows.length > 0 ? tokenCheck.rows[0].token : null;
+
+      if (!token) {
+        token = uuidv4();
+        await query(`
+          INSERT INTO account_activations (email, token, is_completed, created_at, expires_at)
+          VALUES ($1, $2, FALSE, NOW(), NOW() + INTERVAL '7 days')
+          ON CONFLICT (email) DO UPDATE SET
+            token = EXCLUDED.token,
+            is_completed = FALSE,
+            created_at = NOW(),
+            expires_at = NOW() + INTERVAL '7 days'
+        `, [email, token]);
+      }
+
+      const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
+      const activationLink = `${frontendUrl}/activate?email=${encodeURIComponent(email)}&token=${token}`;
+
+      // Send email through Resend via emailService
+      let emailResult;
+      try {
+        emailResult = await sendActivationEmail({
+          email,
+          fullName: requirement.full_name || '',
+          activationLink,
+        });
+      } catch (sendErr: any) {
+        console.error(`Resend API failed for requirement ${id}:`, sendErr.message);
+        await query(
+          `UPDATE tenant_requirements
+           SET activation_email_status = 'Failed',
+               updated_at = NOW()
+           WHERE id = $1`,
+          [id]
+        );
+        res.status(502).json({ error: `Email delivery failed: ${sendErr.message || 'Unknown error'}` });
+        return;
+      }
+
+      // Update tenant_requirements on success
+      await query(
+        `UPDATE tenant_requirements
+         SET activation_email_sent_at = NOW(),
+             activation_email_status = 'Sent',
+             updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Activation email sent successfully',
+        messageId: emailResult.id,
+      });
+    } catch (err: any) {
+      console.error('Error in send-activation-email endpoint:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// POST /api/admin/requirements/send-activation-emails
+// Admin-only: Send bulk activation emails to selected requirement leads
+router.post(
+  '/requirements/send-activation-emails',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { requirementIds } = req.body;
+    if (!Array.isArray(requirementIds) || requirementIds.length === 0) {
+      res.status(400).json({ error: 'requirementIds must be a non-empty array' });
+      return;
+    }
+
+    let sent_count = 0;
+    let skipped_count = 0;
+    let failed_count = 0;
+    const results: any[] = [];
+
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
+
+    for (const reqId of requirementIds) {
+      try {
+        // Find requirement
+        const reqResult = await query(
+          'SELECT id, full_name, email FROM tenant_requirements WHERE id = $1',
+          [reqId]
+        );
+        if (reqResult.rows.length === 0) {
+          skipped_count++;
+          results.push({ id: reqId, status: 'skipped', reason: 'Requirement not found' });
+          continue;
+        }
+
+        const requirement = reqResult.rows[0] as { id: string; full_name: string; email: string };
+        const email = (requirement.email || '').trim().toLowerCase();
+
+        // Skip rows missing email or invalid email
+        if (!email || !email.includes('@')) {
+          await query(
+            "UPDATE tenant_requirements SET activation_email_status = 'Failed', updated_at = NOW() WHERE id = $1",
+            [reqId]
+          );
+          skipped_count++;
+          results.push({ id: reqId, status: 'skipped', reason: 'Missing or invalid email' });
+          continue;
+        }
+
+        // Skip already activated users
+        const userCheck = await query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+        if (userCheck.rows.length > 0) {
+          await query(
+            "UPDATE tenant_requirements SET activation_email_status = 'Activated', updated_at = NOW() WHERE id = $1",
+            [reqId]
+          );
+          skipped_count++;
+          results.push({ id: reqId, status: 'skipped', reason: 'User already registered' });
+          continue;
+        }
+
+        // Fetch or create token
+        const tokenCheck = await query(
+          `SELECT token FROM account_activations
+           WHERE LOWER(email) = $1 AND is_completed = FALSE AND expires_at > NOW()`,
+          [email]
+        );
+        let token = tokenCheck.rows.length > 0 ? tokenCheck.rows[0].token : null;
+
+        if (!token) {
+          token = uuidv4();
+          await query(`
+            INSERT INTO account_activations (email, token, is_completed, created_at, expires_at)
+            VALUES ($1, $2, FALSE, NOW(), NOW() + INTERVAL '7 days')
+            ON CONFLICT (email) DO UPDATE SET
+              token = EXCLUDED.token,
+              is_completed = FALSE,
+              created_at = NOW(),
+              expires_at = NOW() + INTERVAL '7 days'
+          `, [email, token]);
+        }
+
+        const activationLink = `${frontendUrl}/activate?email=${encodeURIComponent(email)}&token=${token}`;
+
+        // Send email through Resend via emailService
+        try {
+          const emailResult = await sendActivationEmail({
+            email,
+            fullName: requirement.full_name || '',
+            activationLink,
+          });
+
+          // Update tenant_requirements on success
+          await query(
+            `UPDATE tenant_requirements
+             SET activation_email_sent_at = NOW(),
+                 activation_email_status = 'Sent',
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [reqId]
+          );
+
+          sent_count++;
+          results.push({ id: reqId, status: 'sent', messageId: emailResult.id });
+        } catch (sendErr: any) {
+          console.error(`Resend API bulk send failed for requirement ${reqId}:`, sendErr.message);
+          await query(
+            `UPDATE tenant_requirements
+             SET activation_email_status = 'Failed',
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [reqId]
+          );
+          failed_count++;
+          results.push({ id: reqId, status: 'failed', error: sendErr.message || 'Email delivery failed' });
+        }
+      } catch (err: any) {
+        console.error(`Error sending activation email for requirement ${reqId} in bulk:`, err);
+        failed_count++;
+        results.push({ id: reqId, status: 'failed', error: err.message || 'Internal error' });
+      }
+    }
+
+    res.json({
+      success: true,
+      sent_count,
+      skipped_count,
+      failed_count,
+      results,
+    });
+  }
+);
+
 // POST /api/admin/requirements/manual-import
 router.post(
   '/requirements/manual-import',
@@ -894,13 +1137,6 @@ router.post(
       return;
     }
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (!resendApiKey) {
-      res.status(500).json({ error: 'RESEND_API_KEY environment variable is not configured.' });
-      return;
-    }
-
-    const emailFrom = process.env.EMAIL_FROM || 'Demand RE <hello@demand-re.com>';
     const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
 
     let successCount = 0;
@@ -918,8 +1154,8 @@ router.post(
         const requirement = reqResult.rows[0] as { id: string; full_name: string; email: string };
         const email = (requirement.email || '').trim().toLowerCase();
 
-        if (!email) {
-          await query("UPDATE tenant_requirements SET activation_email_status = 'Failed' WHERE id = $1", [reqId]);
+        if (!email || !email.includes('@')) {
+          await query("UPDATE tenant_requirements SET activation_email_status = 'Failed', updated_at = NOW() WHERE id = $1", [reqId]);
           failedCount++;
           continue;
         }
@@ -927,7 +1163,7 @@ router.post(
         // Check if user already exists
         const userCheck = await query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
         if (userCheck.rows.length > 0) {
-          await query("UPDATE tenant_requirements SET activation_email_status = 'Activated' WHERE id = $1", [reqId]);
+          await query("UPDATE tenant_requirements SET activation_email_status = 'Activated', updated_at = NOW() WHERE id = $1", [reqId]);
           successCount++;
           continue;
         }
@@ -955,60 +1191,28 @@ router.post(
 
         const activationLink = `${frontendUrl}/activate?email=${encodeURIComponent(email)}&token=${token}`;
 
-        const fullName = requirement.full_name || '';
-        let firstName = 'there';
-        if (fullName) {
-          const parts = fullName.trim().split(/\s+/);
-          if (parts.length > 0) {
-            firstName = parts[0];
-          }
-        }
+        try {
+          await sendActivationEmail({
+            email,
+            fullName: requirement.full_name || '',
+            activationLink,
+          });
 
-        const subject = 'Your Demand RE space request is ready';
-        const htmlContent = `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">
-            <p>Hi ${firstName},</p>
-            <p>Thanks for submitting your commercial space requirements through Demand RE.</p>
-            <p>We’ve securely saved your request and created a profile where you can review your space needs, update your search criteria, and receive matching opportunities from landlords and property owners.</p>
-            <p>Activate your profile here:</p>
-            <p style="margin: 24px 0;">
-              <a href="${activationLink}" target="_blank" style="display: inline-block; padding: 12px 24px; font-size: 15px; font-weight: bold; color: #fff; background-color: #2563eb; text-decoration: none; border-radius: 8px;">Activate Profile</a>
-            </p>
-            <p>Please use the same email you submitted with your space request.</p>
-            <p>Best,<br/>Demand RE</p>
-          </div>
-        `;
-
-        // Make HTTP request directly to Resend API
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: emailFrom,
-            to: [email],
-            subject: subject,
-            html: htmlContent,
-          }),
-        });
-
-        if (response.ok) {
           await query(
             `UPDATE tenant_requirements
              SET activation_email_sent_at = NOW(),
-                 activation_email_status = 'Sent'
+                 activation_email_status = 'Sent',
+                 updated_at = NOW()
              WHERE id = $1`,
             [reqId]
           );
           successCount++;
-        } else {
-          const responseText = await response.text();
-          console.error(`Resend API failed with status ${response.status}: ${responseText}`);
+        } catch (sendErr: any) {
+          console.error(`Resend API failed for requirement ${reqId}:`, sendErr.message);
           await query(
             `UPDATE tenant_requirements
-             SET activation_email_status = 'Failed'
+             SET activation_email_status = 'Failed',
+                 updated_at = NOW()
              WHERE id = $1`,
             [reqId]
           );
@@ -1018,7 +1222,8 @@ router.post(
         console.error(`Error sending activation email for requirement ${reqId}:`, err.message);
         await query(
           `UPDATE tenant_requirements
-           SET activation_email_status = 'Failed'
+           SET activation_email_status = 'Failed',
+               updated_at = NOW()
            WHERE id = $1`,
           [reqId]
         );

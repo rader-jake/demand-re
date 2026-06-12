@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Loader2, Search, Filter, ArrowRight, ClipboardList, RefreshCw, Calendar, Mail, Phone, MapPin, Building, Ruler, CircleDollarSign, Compass } from 'lucide-react';
+import { Loader2, Search, Filter, ArrowRight, ClipboardList, RefreshCw, Calendar, Mail, Phone, MapPin, Building, Ruler, CircleDollarSign, Compass, Send, AlertTriangle, X, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminApi, getErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,88 @@ export default function AdminRequirementsPage() {
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [total, setTotal] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [pendingSendIds, setPendingSendIds] = useState<string[]>([]);
+  const [sendingEmails, setSendingEmails] = useState(false);
+
+  const getEmailStatusBadge = (status: string) => {
+    switch (status) {
+      case 'Activated':
+        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/50">Activated</span>;
+      case 'Sent':
+        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200/50">Sent</span>;
+      case 'Failed':
+        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-full bg-red-50 text-red-700 border border-red-200/50">Failed</span>;
+      default:
+        return <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-full bg-neutral-100 text-neutral-550 border border-neutral-200">Not Sent</span>;
+    }
+  };
+
+  const toggleRowSelect = (id: string) => {
+    const updated = new Set(selectedIds);
+    if (updated.has(id)) {
+      updated.delete(id);
+    } else {
+      updated.add(id);
+    }
+    setSelectedIds(updated);
+  };
+
+  const toggleAllRows = () => {
+    if (selectedIds.size === requirements.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(requirements.map(r => r.id)));
+    }
+  };
+
+  const triggerSendActivation = async (ids: string[], bypassCheck = false) => {
+    if (ids.length === 0) return;
+
+    if (!bypassCheck) {
+      const alreadySent = requirements.filter(r => ids.includes(r.id) && r.activation_email_status === 'Sent');
+      if (alreadySent.length > 0) {
+        setPendingSendIds(ids);
+        setConfirmModalOpen(true);
+        return;
+      }
+    }
+
+    setSendingEmails(true);
+    try {
+      if (ids.length === 1) {
+        const id = ids[0];
+        await adminApi.sendActivationEmail(id);
+        toast.success('Activation email sent successfully.');
+        
+        // Update status locally
+        setRequirements(prev => prev.map(r => {
+          if (r.id === id) {
+            return {
+              ...r,
+              activation_email_status: 'Sent',
+              activation_email_sent_at: new Date().toISOString()
+            };
+          }
+          return r;
+        }));
+      } else {
+        const res = await adminApi.sendBulkActivationEmails(ids);
+        const { sent_count, skipped_count, failed_count } = res.data;
+        toast.success(`Bulk activation completed. Sent: ${sent_count}, Skipped: ${skipped_count}, Failed: ${failed_count}`);
+        
+        // Refresh requirements
+        fetchRequirements();
+      }
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast.error(getErrorMessage(err) || 'Failed to send activation emails.');
+    } finally {
+      setSendingEmails(false);
+      setConfirmModalOpen(false);
+    }
+  };
 
   const fetchRequirements = () => {
     setLoading(true);
@@ -40,6 +122,7 @@ export default function AdminRequirementsPage() {
 
   // Trigger load when page/filters change
   useEffect(() => {
+    setSelectedIds(new Set());
     fetchRequirements();
   }, [page, statusFilter]);
 
@@ -145,6 +228,33 @@ export default function AdminRequirementsPage() {
         </form>
       </div>
 
+      {/* Bulk Activation Email Control Bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-neutral-100/50 p-4 border border-neutral-200 rounded-2xl shadow-sm animate-fadeIn">
+          <div className="text-sm font-semibold text-neutral-650 flex items-center gap-2">
+            <Mail className="w-4 h-4 text-brand-650" />
+            {selectedIds.size} requirements selected for activation email broadcast.
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setSelectedIds(new Set())}
+              className="btn btn-secondary border-neutral-300 font-bold px-4 py-2 rounded-xl hover:bg-neutral-50"
+              disabled={sendingEmails}
+            >
+              Clear Selection
+            </button>
+            <button 
+              onClick={() => triggerSendActivation(Array.from(selectedIds))} 
+              className="btn btn-primary bg-brand-600 text-white font-bold px-5 py-2 rounded-xl hover:bg-brand-700 transition flex items-center gap-2"
+              disabled={sendingEmails}
+            >
+              {sendingEmails ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Send Activation Emails
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Requirements Table Card */}
       <div className="card bg-white rounded-2xl border border-neutral-200/60 shadow-md overflow-hidden">
         {loading ? (
@@ -183,100 +293,143 @@ export default function AdminRequirementsPage() {
             <table className="w-full text-sm text-left border-collapse">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50/50">
+                  <th className="p-4 w-12 text-center">
+                    <input 
+                      type="checkbox"
+                      checked={selectedIds.size === requirements.length && requirements.length > 0}
+                      onChange={toggleAllRows}
+                      className="rounded border-neutral-300 text-brand-600 focus:ring-brand-500 h-4 w-4"
+                    />
+                  </th>
                   <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Tenant / Contact</th>
                   <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Business & Space</th>
                   <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Requirements</th>
+                  <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Activation</th>
                   <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-neutral-400 uppercase tracking-wider">Created</th>
                   <th className="px-6 py-4 text-right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
-                {requirements.map((req) => (
-                  <tr key={req.id} className="hover:bg-neutral-50/40 transition duration-150">
-                    {/* Tenant & Contact */}
-                    <td className="px-6 py-4">
-                      <div className="space-y-1">
-                        <div className="font-bold text-neutral-900 text-base">{req.full_name || 'Anonymous Tenant'}</div>
-                        <div className="flex flex-col gap-0.5 text-xs text-neutral-500 font-medium">
-                          <span className="flex items-center gap-1.5">
-                            <Mail className="w-3.5 h-3.5 text-neutral-400" />
-                            {req.email}
-                          </span>
-                          {req.phone && (
+                {requirements.map((req) => {
+                  const isSelected = selectedIds.has(req.id);
+                  return (
+                    <tr 
+                      key={req.id} 
+                      className={cn(
+                        "hover:bg-neutral-50/40 transition duration-150",
+                        isSelected && "bg-brand-50/10"
+                      )}
+                    >
+                      <td className="p-4 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleRowSelect(req.id)}
+                          className="rounded border-neutral-300 text-brand-600 focus:ring-brand-500 h-4 w-4"
+                        />
+                      </td>
+                      {/* Tenant & Contact */}
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <div className="font-bold text-neutral-900 text-base">{req.full_name || 'Anonymous Tenant'}</div>
+                          <div className="flex flex-col gap-0.5 text-xs text-neutral-550 font-medium">
                             <span className="flex items-center gap-1.5">
-                              <Phone className="w-3.5 h-3.5 text-neutral-400" />
-                              {req.phone}
+                              <Mail className="w-3.5 h-3.5 text-neutral-400" />
+                              {req.email}
                             </span>
+                            {req.phone && (
+                              <span className="flex items-center gap-1.5">
+                                <Phone className="w-3.5 h-3.5 text-neutral-400" />
+                                {req.phone}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Business & Space */}
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <div className="font-bold text-neutral-800 flex items-center gap-1.5">
+                            <Building className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+                            {req.business_type || 'Unknown Business'}
+                          </div>
+                          <div className="text-xs text-neutral-550 flex items-center gap-1 font-medium">
+                            <Compass className="w-3.5 h-3.5 text-neutral-400" />
+                            Space: <span className="font-bold capitalize text-neutral-700">{req.space_types ? req.space_types.join(', ') : 'Any'}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Requirements */}
+                      <td className="px-6 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600 font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                            <span className="truncate max-w-[140px]" title={req.neighborhoods?.join(', ') || req.desired_location}>Loc: {req.neighborhoods?.join(', ') || 'Flexible'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Ruler className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                            Size: {req.max_square_feet ? `${req.min_square_feet}-${req.max_square_feet} SF` : 'Flexible'}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <CircleDollarSign className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                            Budget: {req.max_monthly_budget ? `$${req.min_monthly_budget}-$${req.max_monthly_budget}` : 'Flexible'}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                            Move: {req.move_timeline_label || 'Anytime'}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Activation Column */}
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-1.5 items-start">
+                          {getEmailStatusBadge(req.activation_email_status)}
+                          {req.activation_email_status !== 'Activated' && (
+                            <button
+                              onClick={() => triggerSendActivation([req.id])}
+                              className="text-xs font-bold text-brand-600 hover:text-brand-800 transition flex items-center gap-1 mt-0.5"
+                              disabled={sendingEmails}
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              {req.activation_email_status === 'Sent' ? 'Resend Invite' : 'Send Invite'}
+                            </button>
                           )}
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Business & Space */}
-                    <td className="px-6 py-4">
-                      <div className="space-y-1">
-                        <div className="font-bold text-neutral-800 flex items-center gap-1.5">
-                          <Building className="w-4 h-4 text-neutral-400 flex-shrink-0" />
-                          {req.business_type || 'Unknown Business'}
-                        </div>
-                        <div className="text-xs text-neutral-550 flex items-center gap-1 font-medium">
-                          <Compass className="w-3.5 h-3.5 text-neutral-400" />
-                          Space: <span className="font-bold capitalize text-neutral-700">{req.space_types ? req.space_types.join(', ') : 'Any'}</span>
-                        </div>
-                      </div>
-                    </td>
+                      {/* Requirement Status */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={cn('badge px-3 py-1 rounded-full text-[10px] tracking-wider uppercase font-bold border', getStatusBadgeClass(req.status))}>
+                          {req.status}
+                        </span>
+                      </td>
 
-                    {/* Requirements */}
-                    <td className="px-6 py-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600 font-medium">
-                        <div className="flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
-                          <span className="truncate max-w-[140px]" title={req.neighborhoods?.join(', ') || req.desired_location}>Loc: {req.neighborhoods?.join(', ') || 'Flexible'}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Ruler className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
-                          Size: {req.max_square_feet ? `${req.min_square_feet}-${req.max_square_feet} SF` : 'Flexible'}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <CircleDollarSign className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
-                          Budget: {req.max_monthly_budget ? `$${req.min_monthly_budget}-$${req.max_monthly_budget}` : 'Flexible'}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
-                          Move: {req.move_timeline_label || 'Anytime'}
-                        </div>
-                      </div>
-                    </td>
+                      {/* Created date */}
+                      <td className="px-6 py-4 whitespace-nowrap text-xs text-neutral-500 font-medium">
+                        {new Date(req.created_at).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </td>
 
-                    {/* Requirement Status */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={cn('badge px-3 py-1 rounded-full text-[10px] tracking-wider uppercase font-bold border', getStatusBadgeClass(req.status))}>
-                        {req.status}
-                      </span>
-                    </td>
-
-                    {/* Created date */}
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-neutral-500 font-medium">
-                      {new Date(req.created_at).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
-                    </td>
-
-                    {/* Action button */}
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <Link
-                        href={`/admin/requirements/${req.id}`}
-                        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100 transition-colors rounded-xl font-bold shadow-sm"
-                      >
-                        Match Desk
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      {/* Action button */}
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <Link
+                          href={`/admin/requirements/${req.id}`}
+                          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100 transition-colors rounded-xl font-bold shadow-sm"
+                        >
+                          Match Desk
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -309,6 +462,45 @@ export default function AdminRequirementsPage() {
           </div>
         )}
       </div>
+
+      {/* CONFIRM SEND MODAL */}
+      {confirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white border border-neutral-250 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-600">
+                <AlertTriangle className="w-6 h-6" />
+                <h3 className="text-lg font-black text-neutral-850">Already Sent Invitation</h3>
+              </div>
+              <button 
+                onClick={() => setConfirmModalOpen(false)} 
+                className="p-1 rounded-xl text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <p className="text-neutral-500 text-sm leading-relaxed">
+              An activation email was already sent to this lead. Send again?
+            </p>
+            
+            <div className="flex items-center gap-3 justify-end">
+              <button
+                onClick={() => setConfirmModalOpen(false)}
+                className="btn btn-secondary border-neutral-300 font-bold px-4 py-2 rounded-xl hover:bg-neutral-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => triggerSendActivation(pendingSendIds, true)}
+                className="btn btn-primary bg-amber-600 text-white font-bold px-5 py-2 rounded-xl hover:bg-amber-700 transition"
+              >
+                Confirm Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
