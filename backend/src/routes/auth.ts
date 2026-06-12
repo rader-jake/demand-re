@@ -5,7 +5,6 @@ import { query } from '../config/database';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../config/jwt';
 import { validate } from '../middleware/validate';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { ScoringService } from '../services/scoring';
 
 const router = Router();
 
@@ -60,32 +59,19 @@ router.post(
 
         if (role === 'tenant') {
           // Link user_id in tenant_requirements matching source_lead_id or email
-          const linkResult = await query<{ id: string }>(
+          await query(
             `UPDATE tenant_requirements
              SET user_id = $1
-             WHERE source_lead_id = $2 OR LOWER(email) = $3
-             RETURNING id`,
+             WHERE source_lead_id = $2 OR LOWER(email) = $3`,
             [user.id, lead.meta_lead_id, normalizedEmail]
           );
-
-          if (linkResult.rows.length > 0) {
-            for (const row of linkResult.rows) {
-              await ScoringService.computeAndSave(row.id);
-            }
-          }
         }
       } else if (role === 'tenant') {
         // Link any matching tenant requirements directly by email
-        const linkResult = await query<{ id: string }>(
-          "UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = $2 AND user_id IS NULL RETURNING id",
+        await query(
+          "UPDATE tenant_requirements SET user_id = $1 WHERE LOWER(email) = $2 AND user_id IS NULL",
           [user.id, normalizedEmail]
         );
-
-        if (linkResult.rows.length > 0) {
-          for (const row of linkResult.rows) {
-            await ScoringService.computeAndSave(row.id);
-          }
-        }
       }
     } catch (linkError) {
       console.error('Failed to link lead/requirement during registration:', linkError);
