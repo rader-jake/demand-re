@@ -16,10 +16,15 @@
       "static/chunks/main-app.js",
       "static/chunks/app/(auth)/register/page.js"
     ],
-    "/about/page": [
+    "/landlord/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/about/page.js"
+      "static/chunks/app/landlord/dashboard/page.js"
+    ],
+    "/landlord/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/landlord/layout.js"
     ],
     "/_not-found/page": [
       "static/chunks/webpack.js",

@@ -582,6 +582,21 @@ CREATE TRIGGER trg_tenant_matches_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
+-- LANDLORD WAITLIST
+-- ============================================================
+
+CREATE TABLE landlord_waitlist (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name        VARCHAR(255) NOT NULL,
+  company     VARCHAR(255) NOT NULL,
+  email       VARCHAR(255) UNIQUE NOT NULL,
+  role        VARCHAR(100) NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_landlord_waitlist_email ON landlord_waitlist(email);
+
+-- ============================================================
 -- VIEWS
 -- ============================================================
 

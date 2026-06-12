@@ -27,12 +27,6 @@ const TENANT_NAV: NavItem[] = [
 
 const LANDLORD_NAV: NavItem[] = [
   { href: '/landlord/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/landlord/search', label: 'Find Tenants', icon: Search },
-  { href: '/landlord/saved', label: 'Saved Tenants', icon: Bookmark },
-  { href: '/landlord/interests', label: 'My Outreach', icon: Bell },
-  { href: '/landlord/messages', label: 'Messages', icon: MessageSquare },
-  { href: '/landlord/deals', label: 'Deal Pipeline', icon: Briefcase },
-  { href: '/landlord/billing', label: 'Billing', icon: CreditCard },
 ];
 
 const ADMIN_NAV: NavItem[] = [

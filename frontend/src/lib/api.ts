@@ -88,6 +88,8 @@ export const landlordApi = {
   getDeals: () => api.get('/landlords/deals'),
   createDeal: (data: Record<string, unknown>) => api.post('/landlords/deals', data),
   updateDeal: (id: string, data: Record<string, unknown>) => api.put(`/landlords/deals/${id}`, data),
+  joinWaitlist: (data: { name: string; company: string; email: string; role: string }) =>
+    api.post('/landlords/waitlist', data),
 };
 
 // Messages
@@ -141,6 +143,11 @@ export const analyticsApi = {
   getNeighborhoodDemand: (filters?: Record<string, unknown>) =>
     api.get('/analytics/neighborhood-demand', { params: filters }),
   getIndustryInsights: () => api.get('/analytics/industry-insights'),
+};
+
+// Stats
+export const statsApi = {
+  getStats: () => api.get('/stats'),
 };
 
 export function getErrorMessage(error: unknown): string {

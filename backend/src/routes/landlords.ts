@@ -347,4 +347,29 @@ router.put('/deals/:id', authenticate, requireLandlord, async (req: AuthRequest,
   res.json({ message: 'Deal updated' });
 });
 
+// POST /api/landlords/waitlist - Join waitlist
+router.post('/waitlist', authenticate, requireLandlord, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { name, company, email, role } = req.body;
+  if (!name || !company || !email || !role) {
+    res.status(400).json({ error: 'All fields are required' });
+    return;
+  }
+
+  try {
+    await query(
+      `INSERT INTO landlord_waitlist (name, company, email, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO UPDATE SET
+         name = EXCLUDED.name,
+         company = EXCLUDED.company,
+         role = EXCLUDED.role,
+         created_at = NOW()`,
+      [name, company, email, role]
+    );
+    res.status(201).json({ message: 'Join waitlist successful' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
