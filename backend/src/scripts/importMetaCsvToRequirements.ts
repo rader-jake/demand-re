@@ -611,7 +611,8 @@ async function run() {
             `, [email, activationToken]);
             tokensGenerated++;
           }
-          const activationUrl = `https://demand-re.com/activate?email=${encodeURIComponent(email)}&token=${activationToken}`;
+          const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
+          const activationUrl = `${frontendUrl}/activate?email=${encodeURIComponent(email)}&token=${activationToken}`;
           console.log(`[Activation Token] Lead: "${fullName}" (${email}) -> Activation URL: ${activationUrl}`);
         }
 

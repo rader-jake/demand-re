@@ -275,7 +275,8 @@ async function processLeadDetails(leadData: any, rawPayload: any): Promise<void>
         expires_at = NOW() + INTERVAL '7 days'
     `, [normalizedEmail, token]);
 
-    const activationLink = `https://demand-re.com/activate?email=${encodeURIComponent(normalizedEmail)}&token=${token}`;
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
+    const activationLink = `${frontendUrl}/activate?email=${encodeURIComponent(normalizedEmail)}&token=${token}`;
     logger.info(`
 =========================================
 EMAIL: Activate Your Demand RE Account
