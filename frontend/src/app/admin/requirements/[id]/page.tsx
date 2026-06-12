@@ -296,12 +296,12 @@ export default function AdminLeadDetailPage() {
   const getVerificationBadge = (status: string) => {
     switch (status) {
       case 'verified':
-        return 'bg-green-50 text-green-700 border border-green-100';
+        return 'bg-emerald-50 text-emerald-700 border border-emerald-250/60';
       case 'unavailable':
-        return 'bg-red-50 text-red-700 border border-red-100';
+        return 'bg-red-50 text-red-700 border border-red-250/60';
       case 'needs_review':
       default:
-        return 'bg-yellow-50 text-yellow-700 border border-yellow-100';
+        return 'bg-amber-50 text-amber-700 border border-amber-250/60';
     }
   };
 
@@ -555,17 +555,17 @@ export default function AdminLeadDetailPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                       <div className="flex items-center gap-2">
                         {/* Verification badge */}
-                        <span className={cn('badge uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-extrabold', getVerificationBadge(match.verification_status))}>
-                          {match.verification_status}
+                        <span className={cn('badge uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold border', getVerificationBadge(match.verification_status))}>
+                          {match.verification_status?.replace('_', ' ')}
                         </span>
 
                         {/* Sent status badge */}
                         {match.tenant_sent ? (
-                          <span className="badge bg-indigo-100 text-indigo-800 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-extrabold flex items-center gap-1">
+                          <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200/60 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold flex items-center gap-1">
                             <Check className="w-3 h-3" /> Sent to Tenant
                           </span>
                         ) : (
-                          <span className="badge bg-neutral-100 text-neutral-400 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-extrabold">
+                          <span className="badge bg-neutral-50 text-neutral-450 border border-neutral-200/80 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold">
                             Not Sent
                           </span>
                         )}

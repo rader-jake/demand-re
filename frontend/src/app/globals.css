@@ -35,7 +35,10 @@
   .btn-lg { @apply btn text-base px-6 py-3.5; }
 
   .card {
-    @apply bg-white rounded-2xl border border-neutral-200/80 shadow-card;
+    @apply bg-white rounded-2xl border border-neutral-200/80 shadow-card transition-all duration-300 ease-out;
+  }
+  .card:hover {
+    @apply shadow-soft -translate-y-0.5 border-neutral-300/80;
   }
 
   .input {
@@ -53,7 +56,7 @@
   }
 
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-all duration-200;
   }
 
   .stat-card {
@@ -65,7 +68,7 @@
   }
 
   .page-title {
-    @apply text-2xl font-bold text-neutral-900;
+    @apply text-2xl font-bold text-neutral-900 tracking-tight;
   }
 
   .page-subtitle {
@@ -87,5 +90,47 @@
 
   .sidebar-link-active {
     @apply sidebar-link bg-brand-50 text-brand-700 hover:bg-brand-100;
+  }
+
+  /* Premium Shimmer Loader */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(226, 232, 240, 0.6) 25%,
+      rgba(241, 245, 249, 0.9) 50%,
+      rgba(226, 232, 240, 0.6) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer-anim 1.6s infinite linear;
+  }
+
+  @keyframes skeleton-shimmer-anim {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Animated Hero Backgrounds */
+  @keyframes gradient-bg-anim {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .premium-gradient-bg {
+    background: linear-gradient(-45deg, #091530, #0c1a3b, #040914, #121e42);
+    background-size: 400% 400%;
+    animation: gradient-bg-anim 20s ease infinite;
+  }
+
+  .premium-grid-overlay {
+    background-image: 
+      linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    background-size: 60px 60px;
+    background-position: center;
   }
 }

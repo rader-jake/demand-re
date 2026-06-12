@@ -70,9 +70,7 @@ function RegisterForm() {
         />
         <div className="relative">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center">
-              <MapPin className="w-4 h-4 text-white" strokeWidth={2.5} />
-            </div>
+            <img src="/logo.png" alt="Demand RE Logo" className="w-9 h-9 object-contain" />
             <span className="font-black text-2xl tracking-tight">
               <span className="text-white">Demand</span>
               <span className="text-accent-400"> RE</span>
@@ -107,10 +105,8 @@ function RegisterForm() {
         <div className="w-full max-w-md py-8">
           {/* Mobile logo */}
           <div className="lg:hidden flex justify-center mb-8">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center">
-                <MapPin className="w-4 h-4 text-white" strokeWidth={2.5} />
-              </div>
+            <Link href="/" className="flex items-center gap-2">
+              <img src="/logo.png" alt="Demand RE Logo" className="w-8 h-8 object-contain" />
               <span className="font-black text-xl tracking-tight">
                 <span className="text-white">Demand</span>
                 <span className="text-accent-400"> RE</span>
@@ -223,7 +219,7 @@ function RegisterForm() {
                   />
                   <span className="text-xs text-brand-400 group-hover:text-brand-300 leading-relaxed">
                     I agree to the{' '}
-                    <Link href="/legal/terms" target="_blank" className="text-accent-400 hover:text-accent-300 underline underline-offset-2">
+                    <Link href="/terms" target="_blank" className="text-accent-400 hover:text-accent-300 underline underline-offset-2">
                       Terms of Service
                     </Link>
                     , including that Demand RE owns all platform data and activity.
@@ -239,7 +235,7 @@ function RegisterForm() {
                   />
                   <span className="text-xs text-brand-400 group-hover:text-brand-300 leading-relaxed">
                     I have read and agree to the{' '}
-                    <Link href="/legal/privacy" target="_blank" className="text-accent-400 hover:text-accent-300 underline underline-offset-2">
+                    <Link href="/privacy" target="_blank" className="text-accent-400 hover:text-accent-300 underline underline-offset-2">
                       Privacy Policy
                     </Link>
                     , including the collection and use of my data.

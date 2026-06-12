@@ -48,9 +48,7 @@ export default function LoginPage() {
         />
         <div className="relative">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center">
-              <MapPin className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
-            </div>
+            <img src="/logo.png" alt="Demand RE Logo" className="w-9 h-9 object-contain" />
             <span className="font-black text-2xl tracking-tight">
               <span className="text-white">Demand</span>
               <span className="text-accent-400"> RE</span>
@@ -83,10 +81,8 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex justify-center mb-8">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center">
-                <MapPin className="w-4 h-4 text-white" strokeWidth={2.5} />
-              </div>
+            <Link href="/" className="flex items-center gap-2">
+              <img src="/logo.png" alt="Demand RE Logo" className="w-8 h-8 object-contain" />
               <span className="font-black text-xl tracking-tight">
                 <span className="text-white">Demand</span>
                 <span className="text-accent-400"> RE</span>

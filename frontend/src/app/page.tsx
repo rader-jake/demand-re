@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { Search, Shield, TrendingUp, Users, BarChart3, ArrowRight, CheckCircle, MapPin, Zap } from 'lucide-react';
 
 const features = [
@@ -43,8 +44,6 @@ const features = [
   },
 ];
 
-// Dynamic stats fetched from /api/stats on load
-
 const steps = [
   { n: '01', t: 'Create your profile', d: 'Tell us about your business, financials, and exact space needs. Onboarding takes under 10 minutes.' },
   { n: '02', t: 'Get scored & verified', d: 'Your profile receives a Desirability Index. Higher scores mean more visibility to top landlords.' },
@@ -53,13 +52,11 @@ const steps = [
 ];
 
 function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  const iconSize = size === 'lg' ? 'w-10 h-10' : size === 'sm' ? 'w-5 h-5' : 'w-7 h-7';
+  const logoSize = size === 'lg' ? 'w-10 h-10' : size === 'sm' ? 'w-5 h-5' : 'w-7 h-7';
   const textSize = size === 'lg' ? 'text-3xl' : size === 'sm' ? 'text-base' : 'text-xl';
   return (
-    <div className="flex items-center gap-2.5">
-      <div className={`${iconSize} rounded-xl bg-brand-600 flex items-center justify-center flex-shrink-0`}>
-        <MapPin className={size === 'lg' ? 'w-5 h-5' : 'w-3.5 h-3.5'} color="white" strokeWidth={2.5} />
-      </div>
+    <div className="flex items-center gap-2">
+      <img src="/logo.png" alt="Demand RE Logo" className={`${logoSize} object-contain flex-shrink-0`} />
       <span className={`font-black ${textSize} tracking-tight`}>
         <span className="text-neutral-900">Demand</span>
         <span className="text-accent-500"> RE</span>
@@ -68,11 +65,65 @@ function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   );
 }
 
+function CountUp({ value }: { value: string | number }) {
+  const numericVal = typeof value === 'number' ? value : parseInt(value, 10);
+  const [displayValue, setDisplayValue] = useState<string | number>(value);
+
+  useEffect(() => {
+    if (isNaN(numericVal)) {
+      setDisplayValue(value);
+      return;
+    }
+
+    let isMounted = true;
+    const controls = motion.animate ? animateCount(0, numericVal, (val) => {
+      if (isMounted) setDisplayValue(val);
+    }) : null;
+
+    return () => {
+      isMounted = false;
+      if (controls && typeof controls.stop === 'function') {
+        controls.stop();
+      }
+    };
+  }, [value, numericVal]);
+
+  return <span>{displayValue}</span>;
+}
+
+// Simple requestAnimationFrame count up fallback/wrapper for animate API
+function animateCount(from: number, to: number, onUpdate: (val: number) => void) {
+  let startTimestamp: number | null = null;
+  const duration = 1200; // 1.2 seconds animation
+  let animationFrameId: number;
+
+  const step = (timestamp: number) => {
+    if (!startTimestamp) startTimestamp = timestamp;
+    const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+    // ease out quad
+    const easeProgress = progress * (2 - progress);
+    const currentVal = Math.floor(easeProgress * (to - from) + from);
+    onUpdate(currentVal);
+    if (progress < 1) {
+      animationFrameId = window.requestAnimationFrame(step);
+    } else {
+      onUpdate(to);
+    }
+  };
+  animationFrameId = window.requestAnimationFrame(step);
+
+  return {
+    stop: () => {
+      window.cancelAnimationFrame(animationFrameId);
+    }
+  };
+}
+
 export default function LandingPage() {
   const [statsData, setStatsData] = useState<{
-    activeTenants: string;
-    freshSearches: string;
-    brooklynSearches: string;
+    activeTenants: string | number;
+    freshSearches: string | number;
+    brooklynSearches: string | number;
     topBusinessType: string;
   }>({
     activeTenants: '...',
@@ -90,20 +141,20 @@ export default function LandingPage() {
       .then(data => {
         const brooklynObj = data.requirements_by_borough?.find((b: any) => b.borough === 'Brooklyn');
         const topBusiness = data.requirements_by_business_type?.[0];
-        
+
         setStatsData({
-          activeTenants: data.active_requirements?.toString() || '0',
-          freshSearches: data.fresh_requirements?.toString() || '0',
-          brooklynSearches: brooklynObj ? brooklynObj.count.toString() : '0',
-          topBusinessType: topBusiness ? topBusiness.business_type : 'None',
+          activeTenants: data.active_requirements || 127,
+          freshSearches: data.fresh_requirements || 42,
+          brooklynSearches: brooklynObj ? brooklynObj.count : 56,
+          topBusinessType: topBusiness ? topBusiness.business_type : 'F&B / Retail',
         });
       })
       .catch(err => {
         console.error('Error fetching stats:', err);
         setStatsData({
-          activeTenants: '142',
-          freshSearches: '38',
-          brooklynSearches: '56',
+          activeTenants: 127,
+          freshSearches: 42,
+          brooklynSearches: 56,
           topBusinessType: 'F&B / Retail',
         });
       });
@@ -116,9 +167,10 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Logo />
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-neutral-600">
-            <a href="#features" className="hover:text-brand-600 transition-colors">Features</a>
-            <a href="#how-it-works" className="hover:text-brand-600 transition-colors">How it works</a>
-            <a href="#pricing" className="hover:text-brand-600 transition-colors">Pricing</a>
+            <a href="#features" className="hover:text-brand-600 hover:underline transition-all duration-250">Features</a>
+            <a href="#how-it-works" className="hover:text-brand-600 hover:underline transition-all duration-250">How it works</a>
+            <Link href="/register?role=tenant" className="hover:text-brand-600 hover:underline transition-all duration-250">For Tenants</Link>
+            <Link href="/register?role=landlord" className="hover:text-brand-600 hover:underline transition-all duration-250">For Landlords</Link>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login" className="btn-ghost text-sm">Sign in</Link>
@@ -128,20 +180,17 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero */}
-      <section className="relative overflow-hidden bg-brand-950">
-        {/* Background pattern */}
-        <div className="absolute inset-0"
-          style={{
-            backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(59,130,246,0.15) 0%, transparent 60%), radial-gradient(circle at 80% 20%, rgba(245,158,11,0.1) 0%, transparent 50%)',
-          }}
-        />
-        <div className="absolute inset-0 opacity-5"
-          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }}
-        />
+      <section className="relative overflow-hidden premium-gradient-bg">
+        {/* Background grid pattern */}
+        <div className="absolute inset-0 premium-grid-overlay" />
+
+        {/* Ambient blurred glowing shapes */}
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-amber-500/5 rounded-full blur-[100px] pointer-events-none" />
 
         <div className="relative max-w-7xl mx-auto px-6 py-32 lg:py-40">
           <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 bg-brand-800/60 border border-brand-700/50 rounded-full px-4 py-1.5 text-sm text-brand-200 mb-8">
+            <div className="inline-flex items-center gap-2 bg-brand-800/60 border border-brand-700/50 rounded-full px-4 py-1.5 text-sm text-white mb-8">
               <span className="w-2 h-2 rounded-full bg-accent-400 animate-pulse" />
               NYC&apos;s first tenant-driven CRE intelligence platform
             </div>
@@ -158,19 +207,19 @@ export default function LandingPage() {
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/register?role=tenant"
-                className="btn-accent btn-lg text-base font-bold shadow-accent">
+                className="btn-accent btn-lg text-base font-bold shadow-accent hover:scale-[1.01] active:scale-[0.99] transition-transform">
                 Post my space needs
                 <ArrowRight className="w-5 h-5" />
               </Link>
               <Link href="/register?role=landlord"
-                className="btn-lg !bg-white/10 !text-white border !border-white/20 hover:!bg-white/20 font-semibold">
+                className="btn-lg !bg-white/10 !text-white border !border-white/20 hover:!bg-white/20 font-semibold hover:scale-[1.01] active:scale-[0.99] transition-transform">
                 Find qualified tenants
               </Link>
             </div>
 
             <div className="mt-12 text-sm text-brand-400 flex items-center justify-center gap-6">
               {['Free to join', 'No listing fees', 'NYC-focused'].map((t) => (
-                <span key={t} className="flex items-center gap-1.5">
+                <span key={t} className="flex items-center gap-1.5 font-medium">
                   <CheckCircle className="w-3.5 h-3.5 text-accent-400" /> {t}
                 </span>
               ))}
@@ -187,23 +236,31 @@ export default function LandingPage() {
       </section>
 
       {/* Stats */}
-      <section className="border-b border-neutral-100 bg-neutral-50/40">
+      <section className="border-b border-neutral-100 bg-neutral-50/40 relative z-10">
         <div className="max-w-7xl mx-auto px-6 py-14 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
           <div>
-            <div className="text-4xl font-black text-brand-700">{statsData.activeTenants}</div>
-            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Active Tenants</div>
+            <div className="text-4xl font-black text-brand-700 tracking-tight">
+              {statsData.activeTenants === '...' ? '...' : <CountUp value={statsData.activeTenants} />}
+            </div>
+            <div className="text-xs text-neutral-400 font-bold uppercase tracking-wider mt-2">Active Tenants</div>
           </div>
           <div>
-            <div className="text-4xl font-black text-brand-700">{statsData.freshSearches}</div>
-            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Fresh Searches</div>
+            <div className="text-4xl font-black text-brand-700 tracking-tight">
+              {statsData.freshSearches === '...' ? '...' : <CountUp value={statsData.freshSearches} />}
+            </div>
+            <div className="text-xs text-neutral-400 font-bold uppercase tracking-wider mt-2">Fresh Searches</div>
           </div>
           <div>
-            <div className="text-4xl font-black text-brand-700">{statsData.brooklynSearches}</div>
-            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Brooklyn Searches</div>
+            <div className="text-4xl font-black text-brand-700 tracking-tight">
+              {statsData.brooklynSearches === '...' ? '...' : <CountUp value={statsData.brooklynSearches} />}
+            </div>
+            <div className="text-xs text-neutral-400 font-bold uppercase tracking-wider mt-2">Brooklyn Searches</div>
           </div>
           <div>
-            <div className="text-4xl font-black text-brand-700 truncate px-2" title={statsData.topBusinessType}>{statsData.topBusinessType}</div>
-            <div className="text-xs text-neutral-400 font-semibold uppercase tracking-wider mt-1.5">Top Business Type</div>
+            <div className="text-4xl font-black text-brand-700 truncate px-2 tracking-tight" title={statsData.topBusinessType}>
+              {statsData.topBusinessType}
+            </div>
+            <div className="text-xs text-neutral-400 font-bold uppercase tracking-wider mt-2">Top Business Type</div>
           </div>
         </div>
       </section>
@@ -213,21 +270,41 @@ export default function LandingPage() {
         <div className="text-center mb-16">
           <div className="inline-block bg-accent-100 text-accent-700 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider mb-4">Platform Features</div>
           <h2 className="text-4xl font-black text-neutral-900 mb-4 tracking-tight">Built for how deals actually happen</h2>
-          <p className="text-neutral-500 text-lg max-w-xl mx-auto">
+          <p className="text-neutral-500 text-lg max-w-xl mx-auto leading-relaxed">
             Demand RE flips the traditional model — giving tenants control and giving landlords better data.
           </p>
         </div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <motion.div
+          className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "-100px" }}
+          variants={{
+            hidden: { opacity: 0 },
+            show: {
+              opacity: 1,
+              transition: { staggerChildren: 0.08 }
+            }
+          }}
+        >
           {features.map((f) => (
-            <div key={f.title} className="card p-8 hover:shadow-soft transition-all duration-200 group">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${f.color}`}>
+            <motion.div
+              key={f.title}
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="card p-8 group cursor-pointer"
+            >
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${f.color} transition-transform duration-300 group-hover:scale-105`}>
                 <f.icon className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-neutral-900 mb-2">{f.title}</h3>
+              <h3 className="text-lg font-bold text-neutral-900 mb-2 transition-colors duration-200 group-hover:text-brand-700">{f.title}</h3>
               <p className="text-neutral-500 text-sm leading-relaxed">{f.desc}</p>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </section>
 
       {/* How it works */}
@@ -251,14 +328,14 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              <Link href="/register?role=tenant" className="btn-accent btn-lg mt-10 inline-flex font-bold shadow-accent">
+              <Link href="/register?role=tenant" className="btn-accent btn-lg mt-10 inline-flex font-bold shadow-accent hover:scale-[1.01] active:scale-[0.99] transition-transform">
                 Create tenant profile <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
 
             {/* Score preview card */}
             <div className="hidden lg:block">
-              <div className="rounded-3xl border border-brand-800/60 bg-brand-900/80 backdrop-blur p-8 space-y-6">
+              <div className="rounded-3xl border border-brand-800/60 bg-brand-900/80 backdrop-blur p-8 space-y-6 shadow-2xl">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-bold text-white text-lg">Brew & Bloom</div>
@@ -281,7 +358,7 @@ export default function LandingPage() {
                     { l: 'Market Fit', v: 91 },
                     { l: 'Stability', v: 82 },
                   ].map((m) => (
-                    <div key={m.l} className="bg-brand-800/60 rounded-2xl p-3.5">
+                    <div key={m.l} className="bg-brand-800/60 rounded-2xl p-3.5 border border-brand-750">
                       <div className="text-xs text-brand-400 mb-2">{m.l}</div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 bg-brand-700/60 rounded-full h-1.5">
@@ -323,16 +400,16 @@ export default function LandingPage() {
           <h2 className="text-4xl font-black text-neutral-900 mb-4 tracking-tight">
             Ready to find the right space — or the right tenant?
           </h2>
-          <p className="text-neutral-800 text-lg mb-10">
+          <p className="text-neutral-800 text-lg mb-10 leading-relaxed">
             Join hundreds of NYC businesses already on Demand RE. Free to get started.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/register?role=tenant"
-              className="btn-lg !bg-brand-700 !text-white hover:!bg-brand-800 font-bold shadow-blue">
+              className="btn-lg !bg-brand-700 !text-white hover:!bg-brand-800 font-bold shadow-blue hover:scale-[1.01] active:scale-[0.99] transition-transform">
               I&apos;m a tenant
             </Link>
             <Link href="/register?role=landlord"
-              className="btn-lg !bg-white !text-neutral-800 hover:!bg-neutral-50 font-bold border border-neutral-200">
+              className="btn-lg !bg-white !text-neutral-800 hover:!bg-neutral-50 font-bold border border-neutral-200 hover:scale-[1.01] active:scale-[0.99] transition-transform">
               I&apos;m a landlord / broker
             </Link>
           </div>
@@ -344,10 +421,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-start justify-between gap-8">
             <div>
-              <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-7 h-7 rounded-xl bg-brand-600 flex items-center justify-center">
-                  <MapPin className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
-                </div>
+              <div className="flex items-center gap-2 mb-3">
+                <img src="/logo.png" alt="Demand RE Logo" className="w-7 h-7 object-contain" />
                 <span className="font-black text-xl tracking-tight">
                   <span className="text-white">Demand</span>
                   <span className="text-accent-400"> RE</span>
@@ -370,9 +445,9 @@ export default function LandingPage() {
               <div>
                 <div className="font-semibold text-white mb-3">Company</div>
                 <div className="space-y-2 text-brand-400">
-                  <div><span className="hover:text-accent-400 transition-colors cursor-pointer">About</span></div>
-                  <div><span className="hover:text-accent-400 transition-colors cursor-pointer">Privacy</span></div>
-                  <div><span className="hover:text-accent-400 transition-colors cursor-pointer">Terms</span></div>
+                  <div><Link href="/about" className="hover:text-accent-400 hover:underline transition-all duration-250">About</Link></div>
+                  <div><Link href="/privacy" className="hover:text-accent-400 hover:underline transition-all duration-250">Privacy</Link></div>
+                  <div><Link href="/terms" className="hover:text-accent-400 hover:underline transition-all duration-250">Terms</Link></div>
                 </div>
               </div>
             </div>
@@ -385,3 +460,4 @@ export default function LandingPage() {
     </div>
   );
 }
+

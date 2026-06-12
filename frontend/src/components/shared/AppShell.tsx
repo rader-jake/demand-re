@@ -84,10 +84,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}>
         {/* Logo */}
         <div className="flex items-center justify-between px-5 h-16 border-b border-brand-900">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-xl bg-brand-600 flex items-center justify-center flex-shrink-0">
-              <MapPin className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
-            </div>
+          <Link href="/" className="flex items-center gap-2">
+            <img src="/logo.png" alt="Demand RE Logo" className="w-7 h-7 object-contain flex-shrink-0" />
             <span className="font-black text-lg tracking-tight">
               <span className="text-white">Demand</span>
               <span className="text-accent-400"> RE</span>

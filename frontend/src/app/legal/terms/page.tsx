@@ -13,10 +13,8 @@ export default function TermsPage() {
       {/* Header */}
       <header className="bg-brand-950 py-5 px-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center">
-              <MapPin className="w-4 h-4 text-white" strokeWidth={2.5} />
-            </div>
+          <Link href="/" className="flex items-center gap-2">
+            <img src="/logo.png" alt="Demand RE Logo" className="w-8 h-8 object-contain" />
             <span className="font-black text-xl tracking-tight">
               <span className="text-white">Demand</span>
               <span className="text-accent-400"> RE</span>
