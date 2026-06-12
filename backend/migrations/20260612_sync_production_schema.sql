@@ -492,3 +492,8 @@ WHERE (operating_status = 'Concept / Planning' OR operating_status = 'Opening Fi
 UPDATE tenant_requirements
 SET location_count = 1
 WHERE (operating_status <> 'Concept / Planning' AND operating_status <> 'Opening First Location') AND (location_count IS NULL OR location_count = 0);
+
+-- Add fields for activation email tracking
+ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS activation_email_sent_at TIMESTAMPTZ;
+ALTER TABLE tenant_requirements ADD COLUMN IF NOT EXISTS activation_email_status TEXT DEFAULT 'Not Sent';
+

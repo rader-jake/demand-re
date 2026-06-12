@@ -1,6 +1,13 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
-  "/page": "app/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
   "/(auth)/register/page": "app/(auth)/register/page.js",
-  "/landlord/dashboard/page": "app/landlord/dashboard/page.js"
+  "/admin/dashboard/page": "app/admin/dashboard/page.js",
+  "/admin/users/page": "app/admin/users/page.js",
+  "/admin/requirements/[id]/page": "app/admin/requirements/[id]/page.js",
+  "/tenant/onboarding/page": "app/tenant/onboarding/page.js",
+  "/tenant/profile/page": "app/tenant/profile/page.js",
+  "/tenant/messages/page": "app/tenant/messages/page.js",
+  "/tenant/interests/page": "app/tenant/interests/page.js",
+  "/tenant/dashboard/page": "app/tenant/dashboard/page.js"
 }

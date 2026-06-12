@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Search, MessageSquare, Bookmark,
   Bell, LogOut, User, ChevronDown,
-  BarChart3, Users, Menu, X, Briefcase, MapPin, CreditCard,
+  BarChart3, Users, Menu, X, Briefcase, MapPin, CreditCard, Upload,
 } from 'lucide-react';
 import { cn, getInitials } from '@/lib/utils';
 import { clearAuth, getStoredUser } from '@/lib/auth';
@@ -32,6 +32,7 @@ const LANDLORD_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { href: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/requirements', label: 'Requirements', icon: Search },
+  { href: '/admin/import-leads', label: 'Import Leads', icon: Upload },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
 ];

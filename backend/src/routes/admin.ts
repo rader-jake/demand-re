@@ -1,7 +1,9 @@
 import { Router, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
 import { ScoringService } from '../services/scoring';
+import { normalizeMetaCsvRows } from '../utils/metaCsvHelper';
 
 const router = Router();
 
@@ -535,7 +537,7 @@ router.post(
   async (req: AuthRequest, res: Response): Promise<void> => {
     const fields = req.body;
     const { email } = fields;
-    
+
     if (!email) {
       res.status(400).json({ error: 'Email is required' });
       return;
@@ -593,15 +595,442 @@ router.post(
     );
 
     const newReq = insertRes.rows[0] as any;
-    
+
     // Compute scoring
-    try {
-      await ScoringService.computeAndSave(newReq.id);
-    } catch (scoreErr) {
-      console.error('Failed to calculate scoring for manual import:', scoreErr);
+    res.status(201).json({ requirement: newReq });
+  }
+);
+
+// POST /api/admin/import-leads/preview
+router.post(
+  '/import-leads/preview',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { csvData } = req.body;
+    if (!csvData || typeof csvData !== 'string') {
+      res.status(400).json({ error: 'csvData is required as a string.' });
+      return;
     }
 
-    res.status(201).json({ requirement: newReq });
+    // Size limit validation (e.g. 5MB of string text)
+    if (csvData.length > 5 * 1024 * 1024) {
+      res.status(400).json({ error: 'CSV data size exceeds limit.' });
+      return;
+    }
+
+    try {
+      const normalizedRows = normalizeMetaCsvRows(csvData);
+      const totalRows = normalizedRows.length;
+
+      // Efficiently batch look up duplicates and users
+      const reqsRes = await query('SELECT email, source_lead_id, activation_email_sent_at, activation_email_status FROM tenant_requirements');
+      const usersRes = await query('SELECT email FROM users');
+
+      const existingEmails = new Set(reqsRes.rows.map((r: any) => (r.email || '').toLowerCase().trim()));
+      const existingLeadIds = new Set(reqsRes.rows.map((r: any) => (r.source_lead_id || '').trim()));
+      const existingUsers = new Set(usersRes.rows.map((u: any) => (u.email || '').toLowerCase().trim()));
+      const reqsMap = new Map<string, any>(reqsRes.rows.map((r: any) => [(r.email || '').toLowerCase().trim(), r]));
+
+      let validRows = 0;
+      let invalidRows = 0;
+      let duplicateRows = 0;
+      let totalUnmappedCount = 0;
+
+      const previewRows = normalizedRows.map((row) => {
+        const emailLower = row.email.toLowerCase().trim();
+        const hasEmail = !!row.email && row.email.includes('@');
+
+        const reqExists = existingEmails.has(emailLower) || existingLeadIds.has(row.sourceLeadId);
+        const hasAccount = existingUsers.has(emailLower);
+
+        let status = 'Ready';
+        if (!hasEmail) {
+          status = 'Missing Email';
+          invalidRows++;
+        } else {
+          validRows++;
+          if (reqExists) {
+            status = 'Duplicate';
+            duplicateRows++;
+          } else if (row.unmappedValues.length > 0) {
+            if (row.unmappedValues.includes('businessType')) {
+              status = 'Unmapped Business Type';
+            } else if (row.unmappedValues.includes('budgetRange')) {
+              status = 'Invalid Budget';
+            } else {
+              status = 'Needs Review';
+            }
+          }
+        }
+
+        totalUnmappedCount += row.unmappedValues.length;
+
+        // Fetch existing email status if it's duplicate
+        const existingReq = emailLower ? reqsMap.get(emailLower) : null;
+
+        return {
+          ...row,
+          hasAccount,
+          status,
+          activationEmailSentAt: existingReq ? existingReq.activation_email_sent_at : null,
+          activationEmailStatus: existingReq ? (existingReq.activation_email_status || 'Not Sent') : 'Not Sent'
+        };
+      });
+
+      res.json({
+        totalRows,
+        validRows,
+        invalidRows,
+        duplicateRows,
+        unmappedValues: totalUnmappedCount,
+        normalizedPreviewData: previewRows
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to parse CSV data.' });
+    }
+  }
+);
+
+// POST /api/admin/import-leads/commit
+router.post(
+  '/import-leads/commit',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { selectedRows } = req.body;
+    if (!Array.isArray(selectedRows)) {
+      res.status(400).json({ error: 'selectedRows must be an array.' });
+      return;
+    }
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    let tokensGenerated = 0;
+    const committedRequirements: any[] = [];
+
+    for (let i = 0; i < selectedRows.length; i++) {
+      const row = selectedRows[i];
+      try {
+        const rawEmail = row.email;
+        if (!rawEmail || !rawEmail.trim()) {
+          skipped++;
+          continue;
+        }
+
+        const email = rawEmail.trim().toLowerCase();
+        const sourceLeadId = row.sourceLeadId || 'meta_csv_' + Date.now() + '_' + i;
+        const createdTime = row.createdTime ? new Date(row.createdTime) : new Date();
+        const fullName = row.fullName || 'Anonymous';
+        const phone = row.phone || null;
+        const businessType = row.businessType || 'Other';
+        const operatingStatus = row.operatingStatus || 'Other';
+
+        // location_count rules
+        const indicatesFirstLocation = operatingStatus === 'Concept / Planning' || operatingStatus === 'Opening First Location';
+        const locationCount = indicatesFirstLocation ? 0 : 1;
+
+        const boroughs = row.boroughs || [];
+        const neighborhoods = row.neighborhoods || [];
+        const spaceTypes = row.spaceTypes || [];
+        const minSquareFeet = row.minSquareFeet !== undefined ? row.minSquareFeet : null;
+        const maxSquareFeet = row.maxSquareFeet !== undefined ? row.maxSquareFeet : null;
+        const idealSquareFeet = maxSquareFeet;
+        const squareFeetRangeLabel = row.squareFeetRangeLabel || 'Not sure yet';
+        const minMonthlyBudget = row.minMonthlyBudget !== undefined ? row.minMonthlyBudget : null;
+        const maxMonthlyBudget = row.maxMonthlyBudget !== undefined ? row.maxMonthlyBudget : null;
+        const budgetRangeLabel = row.budgetRangeLabel || 'Not sure yet';
+        const moveTimelineLabel = row.moveTimelineLabel || 'Just exploring';
+
+        let targetMoveStartDate = null;
+        let targetMoveEndDate = null;
+        if (row.targetMoveStartDate) {
+          const d = new Date(row.targetMoveStartDate);
+          if (!isNaN(d.getTime())) targetMoveStartDate = d;
+        }
+        if (row.targetMoveEndDate) {
+          const d = new Date(row.targetMoveEndDate);
+          if (!isNaN(d.getTime())) targetMoveEndDate = d;
+        }
+
+        const urgencyStatus = row.urgencyStatus || 'medium';
+        const contactPermission = !!row.contactPermission;
+        const idealSpaceDescription = row.idealSpaceDescription || null;
+        const rawPayload = row.rawPayload || {};
+
+        // Link user if exists
+        const userRes = await query<{ id: string }>('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+        const userId = userRes.rows.length > 0 ? userRes.rows[0].id : null;
+
+        // Check if source_lead_id already exists in tenant_requirements
+        const existingRes = await query<{ id: string }>('SELECT id FROM tenant_requirements WHERE source_lead_id = $1 OR LOWER(email) = $2', [sourceLeadId, email]);
+
+        let requirementId: string;
+        let finalReq: any = null;
+
+        if (existingRes.rows.length > 0) {
+          requirementId = existingRes.rows[0].id;
+
+          const updateRes = await query<any>(`
+            UPDATE tenant_requirements SET
+              full_name = $1, email = $2, phone = $3, business_type = $4, operating_status = $5,
+              location_count = $6, boroughs = $7, neighborhoods = $8, space_types = $9,
+              min_square_feet = $10, max_square_feet = $11, ideal_square_feet = $12,
+              min_monthly_budget = $13, max_monthly_budget = $14,
+              move_timeline_label = $15, target_move_start_date = $16, target_move_end_date = $17,
+              ideal_space_description = $18, contact_permission = $19,
+              budget_range_label = $20, square_feet_range_label = $21,
+              user_id = COALESCE(user_id, $22), last_confirmed_at = $23,
+              raw_payload = $24, urgency_status = $25, updated_at = NOW()
+            WHERE id = $26
+            RETURNING *
+          `, [
+            fullName, email, phone, businessType, operatingStatus,
+            locationCount, JSON.stringify(boroughs), JSON.stringify(neighborhoods), JSON.stringify(spaceTypes),
+            minSquareFeet, maxSquareFeet, idealSquareFeet,
+            minMonthlyBudget, maxMonthlyBudget,
+            moveTimelineLabel, targetMoveStartDate, targetMoveEndDate,
+            idealSpaceDescription, contactPermission,
+            budgetRangeLabel, squareFeetRangeLabel,
+            userId, createdTime, JSON.stringify(rawPayload), urgencyStatus, requirementId
+          ]);
+          finalReq = updateRes.rows[0];
+          updated++;
+        } else {
+          const insertRes = await query<any>(`
+            INSERT INTO tenant_requirements (
+              source, source_lead_id, full_name, email, phone, business_type, operating_status,
+              location_count, boroughs, neighborhoods, location_flexibility, space_types,
+              min_square_feet, max_square_feet, ideal_square_feet,
+              min_monthly_budget, max_monthly_budget, budget_flexibility,
+              move_timeline_label, target_move_start_date, target_move_end_date,
+              urgency_status, ideal_space_description, contact_permission,
+              status, freshness_status, budget_range_label, square_feet_range_label,
+              user_id, raw_payload, last_confirmed_at
+            ) VALUES (
+              'meta_csv_import', $1, $2, $3, $4, $5, $6, $7, $8, $9, 'flexible', $10,
+              $11, $12, $13, $14, $15, 'flexible', $16, $17, $18, $19, $20, $21,
+              'New', 'Fresh', $22, $23, $24, $25, $26
+            ) RETURNING *
+          `, [
+            sourceLeadId, fullName, email, phone, businessType, operatingStatus,
+            locationCount, JSON.stringify(boroughs), JSON.stringify(neighborhoods), JSON.stringify(spaceTypes),
+            minSquareFeet, maxSquareFeet, idealSquareFeet,
+            minMonthlyBudget, maxMonthlyBudget,
+            moveTimelineLabel, targetMoveStartDate, targetMoveEndDate,
+            urgencyStatus, idealSpaceDescription, contactPermission,
+            budgetRangeLabel, squareFeetRangeLabel,
+            userId, JSON.stringify(rawPayload), createdTime
+          ]);
+          requirementId = insertRes.rows[0].id;
+          finalReq = insertRes.rows[0];
+          imported++;
+        }
+
+        // Handle activation token if user doesn't exist
+        if (!userId) {
+          const tokenCheck = await query(
+            `SELECT token FROM account_activations
+             WHERE LOWER(email) = $1 AND is_completed = FALSE AND expires_at > NOW()`,
+            [email]
+          );
+
+          let activationToken = tokenCheck.rows.length > 0 ? tokenCheck.rows[0].token : null;
+          if (!activationToken) {
+            activationToken = uuidv4();
+            await query(`
+              INSERT INTO account_activations (email, token, is_completed, created_at, expires_at)
+              VALUES ($1, $2, FALSE, NOW(), NOW() + INTERVAL '7 days')
+              ON CONFLICT (email) DO UPDATE SET
+                token = EXCLUDED.token,
+                is_completed = FALSE,
+                created_at = NOW(),
+                expires_at = NOW() + INTERVAL '7 days'
+            `, [email, activationToken]);
+            tokensGenerated++;
+          }
+        }
+
+        // Compute scores
+        try {
+          await ScoringService.computeAndSave(requirementId);
+        } catch (scoreErr) {
+          console.error(`Failed to calculate scoring for requirement ${requirementId}:`, scoreErr);
+        }
+
+        if (finalReq) {
+          committedRequirements.push({
+            ...finalReq,
+            hasAccount: !!userId,
+            activation_email_status: finalReq.activation_email_status || 'Not Sent'
+          });
+        }
+      } catch (rowErr) {
+        console.error('Row import failed inside commit endpoint:', rowErr);
+        skipped++;
+      }
+    }
+
+    res.json({
+      importedCount: imported,
+      updatedCount: updated,
+      skippedCount: skipped,
+      activationLinksGenerated: tokensGenerated,
+      requirements: committedRequirements
+    });
+  }
+);
+
+// POST /api/admin/import-leads/send-activations
+router.post(
+  '/import-leads/send-activations',
+  authenticate,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { requirementIds } = req.body;
+    if (!Array.isArray(requirementIds) || requirementIds.length === 0) {
+      res.status(400).json({ error: 'requirementIds must be a non-empty array.' });
+      return;
+    }
+
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      res.status(500).json({ error: 'RESEND_API_KEY environment variable is not configured.' });
+      return;
+    }
+
+    const emailFrom = process.env.EMAIL_FROM || 'Demand RE <hello@demand-re.com>';
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://demand-re.com').replace(/\/+$/, '');
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const reqId of requirementIds) {
+      try {
+        // Fetch requirement
+        const reqResult = await query(
+          'SELECT id, full_name, email FROM tenant_requirements WHERE id = $1',
+          [reqId]
+        );
+        if (reqResult.rows.length === 0) continue;
+
+        const requirement = reqResult.rows[0] as { id: string; full_name: string; email: string };
+        const email = (requirement.email || '').trim().toLowerCase();
+
+        if (!email) {
+          await query("UPDATE tenant_requirements SET activation_email_status = 'Failed' WHERE id = $1", [reqId]);
+          failedCount++;
+          continue;
+        }
+
+        // Check if user already exists
+        const userCheck = await query('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+        if (userCheck.rows.length > 0) {
+          await query("UPDATE tenant_requirements SET activation_email_status = 'Activated' WHERE id = $1", [reqId]);
+          successCount++;
+          continue;
+        }
+
+        // Fetch or create token
+        const tokenCheck = await query(
+          `SELECT token FROM account_activations
+           WHERE LOWER(email) = $1 AND is_completed = FALSE AND expires_at > NOW()`,
+          [email]
+        );
+        let token = tokenCheck.rows.length > 0 ? tokenCheck.rows[0].token : null;
+
+        if (!token) {
+          token = uuidv4();
+          await query(`
+            INSERT INTO account_activations (email, token, is_completed, created_at, expires_at)
+            VALUES ($1, $2, FALSE, NOW(), NOW() + INTERVAL '7 days')
+            ON CONFLICT (email) DO UPDATE SET
+              token = EXCLUDED.token,
+              is_completed = FALSE,
+              created_at = NOW(),
+              expires_at = NOW() + INTERVAL '7 days'
+          `, [email, token]);
+        }
+
+        const activationLink = `${frontendUrl}/activate?email=${encodeURIComponent(email)}&token=${token}`;
+
+        const fullName = requirement.full_name || '';
+        let firstName = 'there';
+        if (fullName) {
+          const parts = fullName.trim().split(/\s+/);
+          if (parts.length > 0) {
+            firstName = parts[0];
+          }
+        }
+
+        const subject = 'Your Demand RE space request is ready';
+        const htmlContent = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">
+            <p>Hi ${firstName},</p>
+            <p>Thanks for submitting your commercial space requirements through Demand RE.</p>
+            <p>We’ve securely saved your request and created a profile where you can review your space needs, update your search criteria, and receive matching opportunities from landlords and property owners.</p>
+            <p>Activate your profile here:</p>
+            <p style="margin: 24px 0;">
+              <a href="${activationLink}" target="_blank" style="display: inline-block; padding: 12px 24px; font-size: 15px; font-weight: bold; color: #fff; background-color: #2563eb; text-decoration: none; border-radius: 8px;">Activate Profile</a>
+            </p>
+            <p>Please use the same email you submitted with your space request.</p>
+            <p>Best,<br/>Demand RE</p>
+          </div>
+        `;
+
+        // Make HTTP request directly to Resend API
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: emailFrom,
+            to: [email],
+            subject: subject,
+            html: htmlContent,
+          }),
+        });
+
+        if (response.ok) {
+          await query(
+            `UPDATE tenant_requirements
+             SET activation_email_sent_at = NOW(),
+                 activation_email_status = 'Sent'
+             WHERE id = $1`,
+            [reqId]
+          );
+          successCount++;
+        } else {
+          const responseText = await response.text();
+          console.error(`Resend API failed with status ${response.status}: ${responseText}`);
+          await query(
+            `UPDATE tenant_requirements
+             SET activation_email_status = 'Failed'
+             WHERE id = $1`,
+            [reqId]
+          );
+          failedCount++;
+        }
+      } catch (err: any) {
+        console.error(`Error sending activation email for requirement ${reqId}:`, err.message);
+        await query(
+          `UPDATE tenant_requirements
+           SET activation_email_status = 'Failed'
+           WHERE id = $1`,
+          [reqId]
+        );
+        failedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      sentCount: successCount,
+      failedCount: failedCount
+    });
   }
 );
 

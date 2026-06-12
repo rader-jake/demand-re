@@ -128,6 +128,9 @@ export const adminApi = {
   deleteMatch: (matchId: string) => api.delete(`/admin/matches/${matchId}`),
   sendMatches: (id: string, matchIds: string[]) => api.post(`/admin/requirements/${id}/send-matches`, { matchIds }),
   manualImport: (data: Record<string, unknown>) => api.post('/admin/requirements/manual-import', data),
+  importLeadsPreview: (csvData: string) => api.post('/admin/import-leads/preview', { csvData }),
+  importLeadsCommit: (selectedRows: any[]) => api.post('/admin/import-leads/commit', { selectedRows }),
+  sendActivations: (requirementIds: string[]) => api.post('/admin/import-leads/send-activations', { requirementIds }),
 };
 
 // Me
