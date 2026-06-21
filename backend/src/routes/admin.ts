@@ -8,6 +8,7 @@ import { sendActivationEmail, resend } from '../services/emailService';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { uploadFileToPublicStorage } from '../services/uploadService';
 
 const router = Router();
 
@@ -83,7 +84,28 @@ router.post(
         res.status(400).json({ error: 'No files uploaded' });
         return;
       }
-      const urls = files.map(file => `/uploads/${file.filename}`);
+      
+      const urls = await Promise.all(
+        files.map(async (file) => {
+          try {
+            const publicUrl = await uploadFileToPublicStorage(file.path);
+            // Delete local file on success
+            try {
+              if (fs.existsSync(file.path)) {
+                fs.unlinkSync(file.path);
+              }
+            } catch (unlinkErr) {
+              console.error('Failed to delete temporary uploaded file:', unlinkErr);
+            }
+            return publicUrl;
+          } catch (uploadErr) {
+            console.error(`Failed to upload ${file.filename} to public storage, falling back to local path:`, uploadErr);
+            // Keep local file on disk and return local path
+            return `/uploads/${file.filename}`;
+          }
+        })
+      );
+
       res.json({ urls });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'File upload failed' });
@@ -573,6 +595,51 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
     return;
   }
 
+  // Intercept match images and upload local ones (e.g. /uploads/...) on the fly
+  const processedMatches = await Promise.all(
+    matches.map(async (match: any) => {
+      if (Array.isArray(match.images) && match.images.length > 0) {
+        let hasChanges = false;
+        const newImages = await Promise.all(
+          match.images.map(async (img: string) => {
+            if (img.startsWith('/uploads/')) {
+              try {
+                const relativePath = img.replace(/^\//, ''); // remove leading slash
+                const localPath = path.resolve(process.cwd(), relativePath);
+                if (fs.existsSync(localPath)) {
+                  console.log(`[SendMatches] Backfilling local image ${img} to public storage...`);
+                  const publicUrl = await uploadFileToPublicStorage(localPath);
+                  hasChanges = true;
+                  
+                  // Optional: Delete local file from disk after successful backfill
+                  try {
+                    fs.unlinkSync(localPath);
+                  } catch (e) {
+                    console.error(`[SendMatches] Failed to delete local backfilled file:`, e);
+                  }
+                  
+                  return publicUrl;
+                }
+              } catch (err: any) {
+                console.error(`[SendMatches] Failed to upload local image ${img} on the fly:`, err.message || err);
+              }
+            }
+            return img;
+          })
+        );
+
+        if (hasChanges) {
+          await query(
+            'UPDATE tenant_matches SET images = $1 WHERE id = $2',
+            [newImages, match.id]
+          );
+          match.images = newImages;
+        }
+      }
+      return match;
+    })
+  );
+
   // Mark selected matches as sent
   await query(
     'UPDATE tenant_matches SET tenant_sent = true WHERE requirement_id = $1 AND id = ANY($2)',
@@ -593,7 +660,7 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   let textBody = `Hi ${tenantName},\n\n`;
   textBody += `We have manually reviewed your business requirements and found some matches for you:\n\n`;
 
-  matches.forEach((match: any, index: number) => {
+  processedMatches.forEach((match: any, index: number) => {
     let summaryParts = [];
     if (match.square_feet) summaryParts.push(`${match.square_feet} SF`);
     if (match.space_type) summaryParts.push(`${match.space_type}`);
@@ -616,7 +683,7 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   htmlBody += `<h2 style="color: #0d2149;">Hi ${tenantName},</h2>`;
   htmlBody += `<p>We have manually reviewed your business requirements and found some matches for you:</p>`;
 
-  matches.forEach((match: any) => {
+  processedMatches.forEach((match: any) => {
     let summaryParts = [];
     if (match.square_feet) summaryParts.push(`<strong>Size:</strong> ${match.square_feet} sq ft`);
     if (match.space_type) summaryParts.push(`<strong>Space Type:</strong> ${match.space_type}`);
@@ -635,13 +702,32 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
       htmlBody += `<p style="margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid #60a5fa; background-color: #eff6ff; font-size: 14px;"><em>Notes: ${match.admin_notes}</em></p>`;
     }
 
-    // Include thumbnails if present
+    // Include listing images formatted according to tasks
     if (Array.isArray(match.images) && match.images.length > 0) {
-      htmlBody += `<div style="margin-top: 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px;">`;
-      match.images.forEach((img: string) => {
-        const absoluteUrl = img.startsWith('http') ? img : `${baseUrl}${img}`;
-        htmlBody += `<img src="${absoluteUrl}" alt="Listing" style="width: 120px; height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0;" />`;
-      });
+      const heroImage = match.images[0];
+      const remainingImages = match.images.slice(1);
+      
+      const heroUrl = heroImage.startsWith('http') ? heroImage : `${baseUrl}${heroImage}`;
+      
+      htmlBody += `<div style="margin-top: 12px; margin-bottom: 12px;">`;
+      
+      // Render large hero image wrapped in clickable link with fallback styles
+      htmlBody += `<a href="${heroUrl}" target="_blank" style="display: block; text-decoration: none; border: none; outline: none; margin-bottom: 12px;">`;
+      htmlBody += `<img src="${heroUrl}" alt="View listing image" style="max-width: 100%; width: 560px; border-radius: 12px; display: block; border: 1px solid #e2e8f0; object-fit: cover; color: #2563eb; text-decoration: underline; font-family: sans-serif; font-size: 14px;" />`;
+      htmlBody += `</a>`;
+      
+      // Render remaining images as a 2-column grid
+      if (remainingImages.length > 0) {
+        htmlBody += `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 560px; margin-bottom: 12px;">`;
+        remainingImages.forEach((img: string) => {
+          const imgUrl = img.startsWith('http') ? img : `${baseUrl}${img}`;
+          htmlBody += `<a href="${imgUrl}" target="_blank" style="display: block; text-decoration: none; border: none; outline: none;">`;
+          htmlBody += `<img src="${imgUrl}" alt="View listing image" style="width: 100%; max-width: 100%; height: 180px; object-fit: cover; border-radius: 8px; display: block; border: 1px solid #e2e8f0; color: #2563eb; text-decoration: underline; font-family: sans-serif; font-size: 14px;" />`;
+          htmlBody += `</a>`;
+        });
+        htmlBody += `</div>`;
+      }
+      
       htmlBody += `</div>`;
     }
 
