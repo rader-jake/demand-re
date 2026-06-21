@@ -4,9 +4,92 @@ import { query } from '../config/database';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
 import { ScoringService } from '../services/scoring';
 import { normalizeMetaCsvRows } from '../utils/metaCsvHelper';
-import { sendActivationEmail } from '../services/emailService';
+import { sendActivationEmail, resend } from '../services/emailService';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
+
+// Configure multer for file uploads
+const uploadDir = process.env.UPLOAD_DIR || './uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: parseInt(process.env.MAX_FILE_SIZE_MB || '10', 10) * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|webp|gif/;
+    const ext = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mime = allowedTypes.test(file.mimetype);
+    if (ext && mime) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images (jpeg, jpg, png, webp, gif) are allowed'));
+    }
+  }
+});
+
+// Helper for Nominatim geocoding
+async function geocodeAddress(address?: string, city?: string, state?: string): Promise<{ lat: number; lng: number } | null> {
+  if (!address) return null;
+  try {
+    const queryParts = [address, city, state].filter(Boolean);
+    const queryStr = encodeURIComponent(queryParts.join(', '));
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${queryStr}&limit=1`, {
+      headers: {
+        'User-Agent': 'CRE-Marketplace-Admin'
+      }
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as any[];
+    if (data && data.length > 0) {
+      return {
+        lat: parseFloat(data[0].lat),
+        lng: parseFloat(data[0].lon)
+      };
+    }
+  } catch (error) {
+    console.error('Nominatim geocoding failed for:', address, error);
+  }
+  return null;
+}
+
+// POST /api/admin/upload
+// Handles multiple image uploads for manual matches
+router.post(
+  '/upload',
+  authenticate,
+  requireAdmin,
+  upload.array('files', 10),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      if (!files || files.length === 0) {
+        res.status(400).json({ error: 'No files uploaded' });
+        return;
+      }
+      const urls = files.map(file => `/uploads/${file.filename}`);
+      res.json({ urls });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'File upload failed' });
+    }
+  }
+);
 
 // GET /api/admin/users
 router.get('/users', authenticate, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -354,7 +437,8 @@ router.post('/requirements/:id/matches', authenticate, requireAdmin, async (req:
   const {
     listing_title, listing_url, address, city, state, neighborhood,
     square_feet, rent, space_type, broker_name, broker_phone, broker_email,
-    admin_notes, match_score, verification_status
+    admin_notes, match_score, verification_status, images, include_source_link,
+    latitude, longitude
   } = req.body;
 
   if (!listing_url) {
@@ -362,18 +446,35 @@ router.post('/requirements/:id/matches', authenticate, requireAdmin, async (req:
     return;
   }
 
+  // Geocode address if coordinates are missing
+  let lat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
+  let lng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+
+  if (address && (lat === null || lng === null)) {
+    const coords = await geocodeAddress(address, city, state);
+    if (coords) {
+      lat = coords.lat;
+      lng = coords.lng;
+    }
+  }
+
   const result = await query(
     `INSERT INTO tenant_matches (
        requirement_id, listing_title, listing_url, address, city, state, neighborhood,
        square_feet, rent, space_type, broker_name, broker_phone, broker_email,
-       admin_notes, match_score, verification_status
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       admin_notes, match_score, verification_status, images, include_source_link,
+       latitude, longitude
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
      RETURNING *`,
     [
       id, listing_title, listing_url, address, city, state, neighborhood,
       square_feet, rent, space_type, broker_name, broker_phone, broker_email,
-      admin_notes, match_score !== undefined ? parseInt(match_score, 10) : null,
-      verification_status ?? 'needs_review'
+      admin_notes, match_score !== undefined && match_score !== null && match_score !== '' ? parseInt(match_score, 10) : null,
+      verification_status ?? 'needs_review',
+      images ?? [],
+      include_source_link === true || include_source_link === 'true',
+      lat,
+      lng
     ]
   );
 
@@ -389,8 +490,18 @@ router.patch('/matches/:matchId', authenticate, requireAdmin, async (req: AuthRe
   const allowedFields = [
     'listing_title', 'listing_url', 'address', 'city', 'state', 'neighborhood',
     'square_feet', 'rent', 'space_type', 'broker_name', 'broker_phone', 'broker_email',
-    'admin_notes', 'match_score', 'verification_status', 'tenant_sent'
+    'admin_notes', 'match_score', 'verification_status', 'tenant_sent',
+    'images', 'include_source_link', 'latitude', 'longitude'
   ];
+
+  // Geocode address if updated and coordinates not provided
+  if (fields.address && fields.latitude === undefined && fields.longitude === undefined) {
+    const coords = await geocodeAddress(fields.address, fields.city, fields.state);
+    if (coords) {
+      fields.latitude = coords.lat;
+      fields.longitude = coords.lng;
+    }
+  }
 
   const keys = Object.keys(fields).filter(key => allowedFields.includes(key));
   if (keys.length === 0) {
@@ -400,7 +511,7 @@ router.patch('/matches/:matchId', authenticate, requireAdmin, async (req: AuthRe
 
   const sets = keys.map((key, idx) => `"${key}" = $${idx + 2}`);
   const values = keys.map(key => {
-    if (key === 'match_score' && fields[key] !== null && fields[key] !== undefined) {
+    if (key === 'match_score' && fields[key] !== null && fields[key] !== undefined && fields[key] !== '') {
       return parseInt(fields[key], 10);
     }
     return fields[key];
@@ -474,22 +585,26 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
     [id]
   );
 
-  // Generate Email Preview (mock send)
+  // Generate Email Preview & Send Email
   const tenantName = requirement.full_name || 'Tenant';
   const subject = `Curated space matches for your requirements - Demand RE`;
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
 
   let textBody = `Hi ${tenantName},\n\n`;
   textBody += `We have manually reviewed your business requirements and found some matches for you:\n\n`;
 
   matches.forEach((match: any, index: number) => {
+    let summaryParts = [];
+    if (match.square_feet) summaryParts.push(`${match.square_feet} SF`);
+    if (match.space_type) summaryParts.push(`${match.space_type}`);
+    if (match.neighborhood || match.city) summaryParts.push(`in ${match.neighborhood || match.city}`);
+    if (match.rent) summaryParts.push(`for ${match.rent}`);
+    const summaryText = summaryParts.join(' ');
+
     textBody += `${index + 1}. ${match.listing_title || 'Commercial Listing'}\n`;
-    if (match.address) textBody += `   Address: ${match.address}${match.city ? `, ${match.city}` : ''}${match.state ? ` ${match.state}` : ''}\n`;
-    if (match.square_feet) textBody += `   Size: ${match.square_feet} sq ft\n`;
-    if (match.rent) textBody += `   Rent: ${match.rent}\n`;
-    if (match.space_type) textBody += `   Type: ${match.space_type}\n`;
-    if (match.listing_url) textBody += `   Link: ${match.listing_url}\n`;
-    if (match.broker_name) textBody += `   Broker: ${match.broker_name}${match.broker_phone ? ` (${match.broker_phone})` : ''}${match.broker_email ? ` (${match.broker_email})` : ''}\n`;
+    if (summaryText) textBody += `   Summary: ${summaryText}\n`;
     if (match.admin_notes) textBody += `   Notes: ${match.admin_notes}\n`;
+    if (match.include_source_link && match.listing_url) textBody += `   Link: ${match.listing_url}\n`;
     textBody += `\n`;
   });
 
@@ -502,23 +617,58 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   htmlBody += `<p>We have manually reviewed your business requirements and found some matches for you:</p>`;
 
   matches.forEach((match: any) => {
+    let summaryParts = [];
+    if (match.square_feet) summaryParts.push(`<strong>Size:</strong> ${match.square_feet} sq ft`);
+    if (match.space_type) summaryParts.push(`<strong>Space Type:</strong> ${match.space_type}`);
+    if (match.neighborhood || match.city) summaryParts.push(`<strong>Location:</strong> ${match.neighborhood || match.city}`);
+    if (match.rent) summaryParts.push(`<strong>Rent:</strong> ${match.rent}`);
+    const summaryText = summaryParts.join(' | ');
+
     htmlBody += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; background-color: #f8fafc;">`;
     htmlBody += `<h3 style="margin-top: 0; color: #0d2149;">${match.listing_title || 'Commercial Space'}</h3>`;
-    htmlBody += `<ul style="list-style-type: none; padding-left: 0; margin-bottom: 12px;">`;
-    if (match.address) htmlBody += `<li><strong>Address:</strong> ${match.address}${match.city ? `, ${match.city}` : ''}${match.state ? ` ${match.state}` : ''}</li>`;
-    if (match.square_feet) htmlBody += `<li><strong>Size:</strong> ${match.square_feet} sq ft</li>`;
-    if (match.rent) htmlBody += `<li><strong>Rent:</strong> ${match.rent}</li>`;
-    if (match.space_type) htmlBody += `<li><strong>Space Type:</strong> ${match.space_type}</li>`;
-    if (match.broker_name) htmlBody += `<li><strong>Broker:</strong> ${match.broker_name}${match.broker_phone ? ` (${match.broker_phone})` : ''}${match.broker_email ? ` (${match.broker_email})` : ''}</li>`;
-    htmlBody += `</ul>`;
-    if (match.admin_notes) htmlBody += `<p style="margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid #60a5fa; background-color: #eff6ff; font-size: 14px;"><em>Notes: ${match.admin_notes}</em></p>`;
-    if (match.listing_url) htmlBody += `<a href="${match.listing_url}" target="_blank" style="display: inline-block; padding: 8px 16px; font-size: 14px; font-weight: bold; color: #fff; background-color: #2563eb; text-decoration: none; border-radius: 8px;">View Listing Details</a>`;
+    
+    if (summaryText) {
+      htmlBody += `<p style="font-size: 14px; color: #475569; margin: 8px 0;">${summaryText}</p>`;
+    }
+
+    if (match.admin_notes) {
+      htmlBody += `<p style="margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid #60a5fa; background-color: #eff6ff; font-size: 14px;"><em>Notes: ${match.admin_notes}</em></p>`;
+    }
+
+    // Include thumbnails if present
+    if (Array.isArray(match.images) && match.images.length > 0) {
+      htmlBody += `<div style="margin-top: 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px;">`;
+      match.images.forEach((img: string) => {
+        const absoluteUrl = img.startsWith('http') ? img : `${baseUrl}${img}`;
+        htmlBody += `<img src="${absoluteUrl}" alt="Listing" style="width: 120px; height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0;" />`;
+      });
+      htmlBody += `</div>`;
+    }
+
+    if (match.include_source_link && match.listing_url) {
+      htmlBody += `<a href="${match.listing_url}" target="_blank" style="display: inline-block; padding: 8px 16px; font-size: 14px; font-weight: bold; color: #fff; background-color: #2563eb; text-decoration: none; border-radius: 8px;">View Listing Details</a>`;
+    }
     htmlBody += `</div>`;
   });
 
   htmlBody += `<p>Please let us know if you would like to schedule a tour for any of these options or need more matches!</p>`;
   htmlBody += `<p style="margin-top: 24px;">Best regards,<br/><strong>Demand RE Admin Team</strong></p>`;
   htmlBody += `</div>`;
+
+  // Dispatch the actual email if Resend is configured
+  if (resend) {
+    try {
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Demand RE <insights@demand-re.com>',
+        to: [requirement.email],
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+    } catch (err: any) {
+      console.error('Failed to send email via Resend:', err);
+    }
+  }
 
   res.json({
     preview: {

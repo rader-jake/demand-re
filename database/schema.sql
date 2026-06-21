@@ -569,6 +569,10 @@ CREATE TABLE tenant_matches (
   admin_notes         TEXT,
   match_score         INTEGER,
   verification_status TEXT DEFAULT 'needs_review',
+  images              TEXT[] DEFAULT '{}',
+  include_source_link BOOLEAN DEFAULT FALSE,
+  latitude            NUMERIC(10, 7),
+  longitude           NUMERIC(10, 7),
   tenant_sent         BOOLEAN DEFAULT false,
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW()

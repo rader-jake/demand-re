@@ -126,6 +126,9 @@ export const adminApi = {
   createMatch: (id: string, match: Record<string, unknown>) => api.post(`/admin/requirements/${id}/matches`, match),
   updateMatch: (matchId: string, match: Record<string, unknown>) => api.patch(`/admin/matches/${matchId}`, match),
   deleteMatch: (matchId: string) => api.delete(`/admin/matches/${matchId}`),
+  uploadImages: (formData: FormData) => api.post('/admin/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
   sendMatches: (id: string, matchIds: string[]) => api.post(`/admin/requirements/${id}/send-matches`, { matchIds }),
   manualImport: (data: Record<string, unknown>) => api.post('/admin/requirements/manual-import', data),
   importLeadsPreview: (csvData: string) => api.post('/admin/import-leads/preview', { csvData }),

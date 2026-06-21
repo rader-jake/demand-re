@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}";
+self.__REACT_LOADABLE_MANIFEST="{\"app/admin/requirements/[id]/page.tsx -> ./MapView\":{\"id\":\"app/admin/requirements/[id]/page.tsx -> ./MapView\",\"files\":[\"static/css/_app-pages-browser_src_app_admin_requirements_id_MapView_tsx.css\",\"static/chunks/_app-pages-browser_src_app_admin_requirements_id_MapView_tsx.js\"]}}"

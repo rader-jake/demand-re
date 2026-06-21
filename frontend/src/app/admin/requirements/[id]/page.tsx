@@ -5,11 +5,15 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   Loader2, ArrowLeft, Plus, Edit2, Trash2, Mail, Phone, MapPin,
   Building, Ruler, CircleDollarSign, Calendar, MessageSquare, ClipboardList,
-  ExternalLink, Sparkles, Send, Check, AlertCircle, RefreshCw, X
+  ExternalLink, Sparkles, Send, Check, AlertCircle, RefreshCw, X, Map, History, UploadCloud, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminApi, getErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import dynamic from 'next/dynamic';
+
+// Load MapView dynamically to prevent SSR issues with Leaflet
+const MapView = dynamic(() => import('./MapView'), { ssr: false });
 
 interface MatchForm {
   id?: string;
@@ -28,6 +32,10 @@ interface MatchForm {
   admin_notes: string;
   match_score: string;
   verification_status: string;
+  images: string[];
+  include_source_link: boolean;
+  latitude: string;
+  longitude: string;
 }
 
 const emptyForm: MatchForm = {
@@ -46,6 +54,10 @@ const emptyForm: MatchForm = {
   admin_notes: '',
   match_score: '',
   verification_status: 'needs_review',
+  images: [],
+  include_source_link: false,
+  latitude: '',
+  longitude: '',
 };
 
 export default function AdminLeadDetailPage() {
@@ -57,24 +69,28 @@ export default function AdminLeadDetailPage() {
   const [matches, setMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [activeTab, setActiveTab] = useState<'matches' | 'map' | 'email-history'>('matches');
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [formData, setFormData] = useState<MatchForm>(emptyForm);
   const [submittingMatch, setSubmittingMatch] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   // Email preview modal states
   const [selectedMatchIds, setSelectedMatchIds] = useState<string[]>([]);
   const [sendingMatches, setSendingMatches] = useState(false);
   const [emailPreview, setEmailPreview] = useState<any>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  
+  // Activation email sending state
+  const [sendingActivation, setSendingActivation] = useState(false);
 
   const fetchLeadData = () => {
     setLoading(true);
     adminApi.getLead(leadId)
       .then(res => {
-        // Response contains all lead fields + matches
         const { matches: leadMatches, ...leadInfo } = res.data;
         setLead(leadInfo);
         setMatches(leadMatches || []);
@@ -102,7 +118,7 @@ export default function AdminLeadDetailPage() {
     // 1. Location match (25 pts)
     const leadLoc = (lead.desired_location || '').toLowerCase().trim();
     const listingLoc = `${form.neighborhood || ''} ${form.city || ''} ${form.address || ''}`.toLowerCase().trim();
-    if (leadLoc && listingLoc && (listingLoc.includes(leadLoc) || leadLoc.includes(leadLoc))) {
+    if (leadLoc && listingLoc && (listingLoc.includes(leadLoc) || leadLoc.includes(listingLoc))) {
       score += 25;
     }
 
@@ -197,8 +213,12 @@ export default function AdminLeadDetailPage() {
       broker_phone: match.broker_phone || '',
       broker_email: match.broker_email || '',
       admin_notes: match.admin_notes || '',
-      match_score: match.match_score !== null ? match.match_score.toString() : '',
+      match_score: match.match_score !== null && match.match_score !== undefined ? match.match_score.toString() : '',
       verification_status: match.verification_status || 'needs_review',
+      images: match.images || [],
+      include_source_link: match.include_source_link || false,
+      latitude: match.latitude !== null && match.latitude !== undefined ? match.latitude.toString() : '',
+      longitude: match.longitude !== null && match.longitude !== undefined ? match.longitude.toString() : '',
     });
     setModalMode('edit');
     setIsModalOpen(true);
@@ -219,10 +239,67 @@ export default function AdminLeadDetailPage() {
     });
   };
 
+  // Image Upload Handlers
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingImages(true);
+    const formDataUpload = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formDataUpload.append('files', files[i]);
+    }
+
+    try {
+      const res = await adminApi.uploadImages(formDataUpload);
+      const urls = res.data.urls || [];
+      setFormData(prev => ({
+        ...prev,
+        images: [...(prev.images || []), ...urls]
+      }));
+      toast.success('Screenshots uploaded successfully');
+    } catch (err) {
+      toast.error(getErrorMessage(err) || 'Failed to upload screenshots');
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
+  const handleDeleteImage = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: (prev.images || []).filter((_, idx) => idx !== index)
+    }));
+  };
+
+  const handleMoveImage = (index: number, direction: 'left' | 'right') => {
+    setFormData(prev => {
+      const images = [...(prev.images || [])];
+      if (direction === 'left' && index > 0) {
+        const temp = images[index];
+        images[index] = images[index - 1];
+        images[index - 1] = temp;
+      } else if (direction === 'right' && index < images.length - 1) {
+        const temp = images[index];
+        images[index] = images[index + 1];
+        images[index + 1] = temp;
+      }
+      return { ...prev, images };
+    });
+  };
+
   const handleMatchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.listing_url) {
       toast.error('Listing URL is required');
+      return;
+    }
+    if (!formData.listing_title) {
+      toast.error('Listing Title is required');
+      return;
+    }
+    if (!formData.admin_notes) {
+      toast.error('Admin Notes are required');
       return;
     }
 
@@ -230,6 +307,8 @@ export default function AdminLeadDetailPage() {
     const payload = {
       ...formData,
       match_score: formData.match_score ? parseInt(formData.match_score, 10) : null,
+      latitude: formData.latitude ? parseFloat(formData.latitude) : null,
+      longitude: formData.longitude ? parseFloat(formData.longitude) : null,
     };
 
     try {
@@ -281,7 +360,7 @@ export default function AdminLeadDetailPage() {
       setIsPreviewOpen(true);
       toast.success('Matches processed successfully');
 
-      // Update state local variables
+      // Update state
       setLead((prev: any) => ({ ...prev, lead_status: 'matches_sent' }));
       setMatches(prev =>
         prev.map(m => selectedMatchIds.includes(m.id) ? { ...m, tenant_sent: true } : m)
@@ -293,15 +372,33 @@ export default function AdminLeadDetailPage() {
     }
   };
 
+  const handleSendActivation = async () => {
+    if (!lead?.id) return;
+    setSendingActivation(true);
+    try {
+      await adminApi.sendActivationEmail(lead.id);
+      toast.success('Activation invitation sent to tenant');
+      setLead((prev: any) => ({
+        ...prev,
+        activation_email_status: 'Sent',
+        activation_email_sent_at: new Date().toISOString()
+      }));
+    } catch (err) {
+      toast.error(getErrorMessage(err) || 'Failed to send activation email');
+    } finally {
+      setSendingActivation(false);
+    }
+  };
+
   const getVerificationBadge = (status: string) => {
     switch (status) {
       case 'verified':
-        return 'bg-emerald-50 text-emerald-700 border border-emerald-250/60';
+        return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
       case 'unavailable':
         return 'bg-red-50 text-red-700 border border-red-250/60';
       case 'needs_review':
       default:
-        return 'bg-amber-50 text-amber-700 border border-amber-250/60';
+        return 'bg-amber-50 text-amber-700 border border-amber-200';
     }
   };
 
@@ -315,6 +412,9 @@ export default function AdminLeadDetailPage() {
   }
 
   const suggestedScoreCurrent = getSuggestedScore(formData);
+
+  // Filter sent matches for Email History tab
+  const sentMatches = matches.filter(m => m.tenant_sent);
 
   return (
     <div className="space-y-8 pb-16">
@@ -351,7 +451,7 @@ export default function AdminLeadDetailPage() {
         </div>
       </div>
 
-      {/* Main Grid: Tenant Requirements & Matches list */}
+      {/* Main Grid: Tenant Requirements & Matches workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         {/* Left Column: Tenant Requirements Details (1/3 width) */}
@@ -425,7 +525,7 @@ export default function AdminLeadDetailPage() {
           </div>
         </div>
 
-        {/* Right Column: Listing Matches Workspace (2/3 width) */}
+        {/* Right Column: Listing Matches Workspace (2/3 width with Tabs) */}
         <div className="space-y-6 lg:col-span-2">
 
           {/* Section Header */}
@@ -444,167 +544,308 @@ export default function AdminLeadDetailPage() {
             </button>
           </div>
 
-          {/* Action Bar for Batch Dispatch */}
-          {matches.length > 0 && (
-            <div className="bg-brand-50 border border-brand-100 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-sm">
-              <div className="text-sm text-brand-800 font-medium">
-                Selected <span className="font-bold text-brand-950">{selectedMatchIds.length}</span> of{' '}
-                <span className="font-bold text-brand-950">
-                  {matches.filter(m => m.verification_status === 'verified').length}
-                </span>{' '}
-                verified matches
-              </div>
+          {/* Tabs Navigation */}
+          <div className="flex border-b border-neutral-200">
+            <button
+              onClick={() => setActiveTab('matches')}
+              className={cn(
+                "py-3 px-5 font-bold text-sm border-b-2 transition-all flex items-center gap-2",
+                activeTab === 'matches'
+                  ? "border-brand-600 text-brand-600"
+                  : "border-transparent text-neutral-500 hover:text-neutral-800"
+              )}
+            >
+              <ClipboardList className="w-4 h-4" />
+              Matches ({matches.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('map')}
+              className={cn(
+                "py-3 px-5 font-bold text-sm border-b-2 transition-all flex items-center gap-2",
+                activeTab === 'map'
+                  ? "border-brand-600 text-brand-600"
+                  : "border-transparent text-neutral-500 hover:text-neutral-800"
+              )}
+            >
+              <Map className="w-4 h-4" />
+              Map View
+            </button>
+            <button
+              onClick={() => setActiveTab('email-history')}
+              className={cn(
+                "py-3 px-5 font-bold text-sm border-b-2 transition-all flex items-center gap-2",
+                activeTab === 'email-history'
+                  ? "border-brand-600 text-brand-600"
+                  : "border-transparent text-neutral-500 hover:text-neutral-800"
+              )}
+            >
+              <History className="w-4 h-4" />
+              Email History ({sentMatches.length})
+            </button>
+          </div>
 
-              <button
-                onClick={handleSendMatches}
-                disabled={selectedMatchIds.length === 0 || sendingMatches}
-                className="btn btn-primary bg-brand-600 hover:bg-brand-700 text-white font-semibold flex items-center gap-2 px-5 py-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-blue transition"
-              >
-                {sendingMatches ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+          {/* TAB 1: MATCHES LIST VIEW */}
+          {activeTab === 'matches' && (
+            <div className="space-y-6">
+              {/* Action Bar for Batch Dispatch */}
+              {matches.length > 0 && (
+                <div className="bg-brand-50 border border-brand-100 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-sm">
+                  <div className="text-sm text-brand-800 font-medium">
+                    Selected <span className="font-bold text-brand-950">{selectedMatchIds.length}</span> of{' '}
+                    <span className="font-bold text-brand-950">
+                      {matches.filter(m => m.verification_status === 'verified').length}
+                    </span>{' '}
+                    verified matches
+                  </div>
+
+                  <button
+                    onClick={handleSendMatches}
+                    disabled={selectedMatchIds.length === 0 || sendingMatches}
+                    className="btn btn-primary bg-brand-600 hover:bg-brand-700 text-white font-semibold flex items-center gap-2 px-5 py-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-blue transition"
+                  >
+                    {sendingMatches ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    Send Matches to Tenant
+                  </button>
+                </div>
+              )}
+
+              {/* Matches List */}
+              <div className="space-y-4">
+                {matches.length === 0 ? (
+                  <div className="card bg-white py-16 text-center border border-neutral-200/80 rounded-2xl shadow-sm">
+                    <AlertCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+                    <h3 className="text-base font-bold text-neutral-700">No matching listings added yet</h3>
+                    <p className="text-neutral-400 text-sm max-w-sm mx-auto mt-1">Search LoopNet, Crexi, or broker databases, and click the button above to add a match.</p>
+                  </div>
                 ) : (
-                  <Send className="w-4 h-4" />
+                  matches.map((match) => (
+                    <div
+                      key={match.id}
+                      className={cn(
+                        "card bg-white p-5 rounded-2xl border transition duration-200 shadow-sm hover:shadow-md relative overflow-hidden flex flex-col md:flex-row gap-5",
+                        match.tenant_sent ? "border-indigo-150 bg-indigo-50/10" : "border-neutral-200/80"
+                      )}
+                    >
+                      {/* Selection Checkbox */}
+                      <div className="flex items-start md:pt-1">
+                        <input
+                          type="checkbox"
+                          id={`select-${match.id}`}
+                          checked={selectedMatchIds.includes(match.id)}
+                          onChange={() => toggleSelectMatch(match.id)}
+                          disabled={match.verification_status !== 'verified' && !match.tenant_sent}
+                          title={match.verification_status !== 'verified' ? 'Verify the listing first before sending' : 'Select to send match'}
+                          className="w-5 h-5 text-brand-600 border-neutral-300 rounded-lg focus:ring-brand-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        />
+                      </div>
+
+                      {/* Main match description */}
+                      <div className="flex-1 space-y-3 min-w-0">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <h4 className="text-lg font-bold text-neutral-900 truncate">
+                              {match.listing_title || 'Commercial Space Match'}
+                            </h4>
+                            {match.address && (
+                              <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
+                                <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-neutral-400" />
+                                {match.address}{match.city ? `, ${match.city}` : ''}{match.state ? ` ${match.state}` : ''}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Score Badge */}
+                          {match.match_score !== null && (
+                            <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-brand-50 border border-brand-100 text-brand-700 text-xs font-extrabold shadow-sm">
+                              <Sparkles className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
+                              Score: {match.match_score}/100
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Image Thumbnails */}
+                        {match.images && match.images.length > 0 && (
+                          <div className="flex flex-wrap gap-2 py-1">
+                            {match.images.map((img: string, idx: number) => {
+                              const fullUrl = img.startsWith('http') ? img : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'}${img}`;
+                              return (
+                                <div key={idx} className="relative rounded-lg overflow-hidden border border-neutral-200 w-16 h-12 bg-neutral-100 flex-shrink-0">
+                                  <img
+                                    src={fullUrl}
+                                    alt={`Screenshot ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Listing Stats details */}
+                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-neutral-600 bg-neutral-50 p-3 rounded-xl border border-neutral-100">
+                          <div>Size: <span className="font-semibold text-neutral-950">{match.square_feet || 'N/A'} sq ft</span></div>
+                          <div>Rent: <span className="font-semibold text-neutral-950">{match.rent || 'N/A'}</span></div>
+                          <div>Type: <span className="font-semibold text-neutral-950 capitalize">{match.space_type || 'N/A'}</span></div>
+                          {match.neighborhood && <div>Neighborhood: <span className="font-semibold text-neutral-950">{match.neighborhood}</span></div>}
+                        </div>
+
+                        {/* Broker Contacts */}
+                        {(match.broker_name || match.broker_phone || match.broker_email) && (
+                          <div className="text-xs text-neutral-505 space-y-1 bg-neutral-50/50 p-2.5 border border-dashed border-neutral-200 rounded-xl">
+                            <span className="font-bold text-neutral-450 uppercase tracking-wider text-[9px] block">🔐 Internal Broker Notes (Admins Only)</span>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                              {match.broker_name && <span className="font-medium text-neutral-700">{match.broker_name}</span>}
+                              {match.broker_phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-neutral-400" /> {match.broker_phone}</span>}
+                              {match.broker_email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-neutral-400" /> {match.broker_email}</span>}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Admin Notes */}
+                        {match.admin_notes && (
+                          <div className="bg-amber-50/50 border-l-2 border-amber-400 p-2.5 rounded-r-xl text-xs text-neutral-600">
+                            <strong>Admin Notes:</strong> {match.admin_notes}
+                          </div>
+                        )}
+
+                        {/* Bottom Status badges & buttons */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                          <div className="flex items-center gap-2">
+                            {/* Verification badge */}
+                            <span className={cn('badge uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold border', getVerificationBadge(match.verification_status))}>
+                              {match.verification_status?.replace('_', ' ')}
+                            </span>
+
+                            {/* Sent status badge */}
+                            {match.tenant_sent ? (
+                              <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200/60 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Sent to Tenant
+                              </span>
+                            ) : (
+                              <span className="badge bg-neutral-50 text-neutral-450 border border-neutral-200/80 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold">
+                                Not Sent
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {match.listing_url && (
+                              <a
+                                href={match.listing_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-secondary btn-sm flex items-center gap-1 shadow-none"
+                              >
+                                Internal Source <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+
+                            <button
+                              onClick={() => openEditModal(match)}
+                              className="btn btn-secondary btn-sm p-1.5 rounded-lg text-neutral-600 hover:bg-neutral-100 border-none shadow-none"
+                              title="Edit match"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteMatch(match.id)}
+                              className="btn btn-secondary btn-sm p-1.5 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 border-none shadow-none"
+                              title="Delete match"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
                 )}
-                Send Matches to Tenant
-              </button>
+              </div>
             </div>
           )}
 
-          {/* Matches List */}
-          <div className="space-y-4">
-            {matches.length === 0 ? (
-              <div className="card bg-white py-16 text-center border border-neutral-200/80 rounded-2xl shadow-sm">
-                <AlertCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-                <h3 className="text-base font-bold text-neutral-700">No matching listings added yet</h3>
-                <p className="text-neutral-400 text-sm max-w-sm mx-auto mt-1">Search LoopNet, Crexi, or broker databases, and click the button above to add a match.</p>
-              </div>
-            ) : (
-              matches.map((match) => (
-                <div
-                  key={match.id}
-                  className={cn(
-                    "card bg-white p-5 rounded-2xl border transition duration-200 shadow-sm hover:shadow-md relative overflow-hidden flex flex-col md:flex-row gap-5",
-                    match.tenant_sent ? "border-indigo-150 bg-indigo-50/10" : "border-neutral-200/80"
-                  )}
-                >
-                  {/* Selection Checkbox (only if verified or already sent) */}
-                  <div className="flex items-start md:pt-1">
-                    <input
-                      type="checkbox"
-                      id={`select-${match.id}`}
-                      checked={selectedMatchIds.includes(match.id)}
-                      onChange={() => toggleSelectMatch(match.id)}
-                      disabled={match.verification_status !== 'verified' && !match.tenant_sent}
-                      title={match.verification_status !== 'verified' ? 'Verify the listing first before sending' : 'Select to send match'}
-                      className="w-5 h-5 text-brand-600 border-neutral-300 rounded-lg focus:ring-brand-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    />
-                  </div>
+          {/* TAB 2: INTERACTIVE MAP VIEW */}
+          {activeTab === 'map' && (
+            <MapView 
+              lead={lead} 
+              matches={matches} 
+              onEditMatch={openEditModal} 
+            />
+          )}
 
-                  {/* Main match description */}
-                  <div className="flex-1 space-y-3 min-w-0">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <h4 className="text-lg font-bold text-neutral-900 truncate">
-                          {match.listing_title || 'Commercial Space Match'}
-                        </h4>
-                        {match.address && (
-                          <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-neutral-400" />
-                            {match.address}{match.city ? `, ${match.city}` : ''}{match.state ? ` ${match.state}` : ''}
-                          </p>
-                        )}
-                      </div>
+          {/* TAB 3: EMAIL HISTORY & DISPATCH TAB */}
+          {activeTab === 'email-history' && (
+            <div className="card bg-white p-6 rounded-2xl border border-neutral-200/80 shadow-md space-y-6">
+              <h3 className="text-lg font-bold text-neutral-900 border-b border-neutral-100 pb-3 flex items-center gap-2">
+                <Mail className="w-5 h-5 text-neutral-600" />
+                Email Communications Log
+              </h3>
 
-                      {/* Score Badge */}
-                      {match.match_score !== null && (
-                        <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-brand-50 border border-brand-100 text-brand-700 text-xs font-extrabold shadow-sm">
-                          <Sparkles className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
-                          Score: {match.match_score}/100
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Listing Stats details */}
-                    <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-neutral-600 bg-neutral-50 p-3 rounded-xl border border-neutral-100">
-                      <div>Size: <span className="font-semibold text-neutral-950">{match.square_feet || 'N/A'} sq ft</span></div>
-                      <div>Rent: <span className="font-semibold text-neutral-950">{match.rent || 'N/A'}</span></div>
-                      <div>Type: <span className="font-semibold text-neutral-950 capitalize">{match.space_type || 'N/A'}</span></div>
-                      {match.neighborhood && <div>Neighborhood: <span className="font-semibold text-neutral-950">{match.neighborhood}</span></div>}
-                    </div>
-
-                    {/* Broker Contacts */}
-                    {(match.broker_name || match.broker_phone || match.broker_email) && (
-                      <div className="text-xs text-neutral-500 space-y-1">
-                        <span className="font-bold text-neutral-400 uppercase tracking-wider text-[9px] block">Broker Representative</span>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          {match.broker_name && <span className="font-medium text-neutral-700">{match.broker_name}</span>}
-                          {match.broker_phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-neutral-400" /> {match.broker_phone}</span>}
-                          {match.broker_email && <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-neutral-400" /> {match.broker_email}</span>}
-                        </div>
-                      </div>
+              {/* Activation Email Dispatcher */}
+              <div className="p-4 rounded-xl border border-neutral-250/60 bg-neutral-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h4 className="font-bold text-neutral-800 text-sm">Account Activation Invitation</h4>
+                  <p className="text-xs text-neutral-500 mt-1">Allows the tenant to register and manage their target requirements.</p>
+                  <div className="mt-2 flex items-center gap-2 text-xs">
+                    <span className="text-neutral-400 font-semibold">Status:</span>
+                    <span className={cn(
+                      "font-bold uppercase px-2 py-0.5 rounded text-[10px]",
+                      lead?.activation_email_status === 'Activated' ? "bg-emerald-50 text-emerald-700" :
+                      lead?.activation_email_status === 'Sent' ? "bg-blue-50 text-blue-700" : "bg-neutral-100 text-neutral-600"
+                    )}>
+                      {lead?.activation_email_status || 'Not Sent'}
+                    </span>
+                    {lead?.activation_email_sent_at && (
+                      <span className="text-neutral-400">
+                        on {new Date(lead.activation_email_sent_at).toLocaleDateString()}
+                      </span>
                     )}
-
-                    {/* Admin Notes */}
-                    {match.admin_notes && (
-                      <div className="bg-yellow-50/50 border-l-2 border-yellow-400 p-2.5 rounded-r-xl text-xs text-neutral-600">
-                        <strong>Admin Notes:</strong> {match.admin_notes}
-                      </div>
-                    )}
-
-                    {/* Bottom Status badges & buttons */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                      <div className="flex items-center gap-2">
-                        {/* Verification badge */}
-                        <span className={cn('badge uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold border', getVerificationBadge(match.verification_status))}>
-                          {match.verification_status?.replace('_', ' ')}
-                        </span>
-
-                        {/* Sent status badge */}
-                        {match.tenant_sent ? (
-                          <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200/60 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Sent to Tenant
-                          </span>
-                        ) : (
-                          <span className="badge bg-neutral-50 text-neutral-450 border border-neutral-200/80 uppercase px-2.5 py-0.5 text-[10px] tracking-wide font-bold">
-                            Not Sent
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {match.listing_url && (
-                          <a
-                            href={match.listing_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-secondary btn-sm flex items-center gap-1 shadow-none"
-                          >
-                            Listing URL <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-
-                        <button
-                          onClick={() => openEditModal(match)}
-                          className="btn btn-secondary btn-sm p-1.5 rounded-lg text-neutral-600 hover:bg-neutral-100 border-none shadow-none"
-                          title="Edit match"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteMatch(match.id)}
-                          className="btn btn-secondary btn-sm p-1.5 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 border-none shadow-none"
-                          title="Delete match"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+
+                <button
+                  onClick={handleSendActivation}
+                  disabled={sendingActivation || lead?.activation_email_status === 'Activated'}
+                  className="btn btn-secondary inline-flex items-center gap-2 border-neutral-300 font-semibold text-xs px-4 py-2 rounded-xl transition disabled:opacity-50"
+                >
+                  {sendingActivation ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  {lead?.activation_email_status === 'Sent' ? 'Resend Invitation' : 'Send Activation Invitation'}
+                </button>
+              </div>
+
+              {/* Sent Matches History */}
+              <div className="space-y-4">
+                <h4 className="font-bold text-neutral-800 text-sm">Matches Shared with Tenant</h4>
+                {sentMatches.length === 0 ? (
+                  <p className="text-neutral-400 text-sm italic">No matches have been shared via email yet.</p>
+                ) : (
+                  <div className="divide-y divide-neutral-100">
+                    {sentMatches.map((match, idx) => (
+                      <div key={match.id} className="py-3 flex justify-between items-center text-sm">
+                        <div className="min-w-0 pr-4">
+                          <span className="font-semibold text-neutral-800 truncate block">{match.listing_title}</span>
+                          <span className="text-neutral-400 text-xs">Updated: {new Date(match.updated_at).toLocaleDateString()}</span>
+                        </div>
+                        <span className="bg-indigo-50 text-indigo-700 border border-indigo-200/50 text-[10px] font-bold uppercase px-2 py-0.5 rounded">
+                          Shared ✓
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -630,139 +871,142 @@ export default function AdminLeadDetailPage() {
             <form onSubmit={handleMatchSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-                {/* Title */}
-                <div className="form-group md:col-span-2">
-                  <label className="label">Listing Title</label>
-                  <input
-                    type="text"
-                    name="listing_title"
-                    value={formData.listing_title}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 50,000 SF Warehouse with High Ceilings"
-                    className="input"
-                    required
-                  />
+                {/* Primary Section */}
+                <div className="md:col-span-2 space-y-4">
+                  <h4 className="text-sm font-bold text-neutral-850 flex items-center gap-1.5 border-b border-neutral-100 pb-2">
+                    <ClipboardList className="w-4 h-4 text-brand-600" />
+                    Required Listing Fields
+                  </h4>
                 </div>
 
                 {/* Listing URL */}
                 <div className="form-group md:col-span-2">
-                  <label className="label">Listing URL (LoopNet/Crexi/Broker)</label>
+                  <label className="label">Listing URL (LoopNet/Crexi/Broker) *</label>
                   <input
                     type="url"
                     name="listing_url"
                     value={formData.listing_url}
                     onChange={handleInputChange}
                     placeholder="https://www.loopnet.com/Listing/..."
-                    className="input"
+                    className="input font-medium"
                     required
                   />
                 </div>
 
-                {/* Address */}
-                <div className="form-group">
-                  <label className="label">Address</label>
+                {/* Title */}
+                <div className="form-group md:col-span-2">
+                  <label className="label">Listing Title or Short Label *</label>
                   <input
                     type="text"
-                    name="address"
-                    value={formData.address}
+                    name="listing_title"
+                    value={formData.listing_title}
                     onChange={handleInputChange}
-                    placeholder="e.g. 123 Broadway"
-                    className="input"
+                    placeholder="e.g. 5,000 SF Retail storefront with high ceilings"
+                    className="input font-semibold"
+                    required
                   />
                 </div>
 
-                {/* Neighborhood */}
-                <div className="form-group">
-                  <label className="label">Neighborhood</label>
-                  <input
-                    type="text"
-                    name="neighborhood"
-                    value={formData.neighborhood}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Soho"
-                    className="input"
-                  />
+                {/* Multiple Images Upload */}
+                <div className="form-group md:col-span-2 border-b border-neutral-100 pb-4">
+                  <label className="label font-bold text-neutral-800">Screenshots / Photos *</label>
+                  <div className="mt-2 border-2 border-dashed border-neutral-200 hover:border-brand-400 rounded-2xl p-6 bg-neutral-50/50 hover:bg-neutral-50 transition duration-150 relative flex flex-col items-center justify-center text-center">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      disabled={uploadingImages}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    {uploadingImages ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+                        <span className="text-sm font-semibold text-neutral-600">Uploading photos...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5 text-neutral-500">
+                        <UploadCloud className="w-8 h-8 text-neutral-400" />
+                        <p className="text-sm font-semibold text-neutral-700">Click to upload screenshots / photos</p>
+                        <p className="text-xs text-neutral-400">PNG, JPG, WEBP, GIF up to 10MB each</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Thumbnail Previews with Reordering and Delete */}
+                  {formData.images && formData.images.length > 0 && (
+                    <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      {formData.images.map((imgUrl, index) => {
+                        const fullUrl = imgUrl.startsWith('http') ? imgUrl : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'}${imgUrl}`;
+                        return (
+                          <div key={index} className="group relative border border-neutral-200 rounded-xl overflow-hidden shadow-sm aspect-video bg-neutral-100 flex items-center justify-center">
+                            <img
+                              src={fullUrl}
+                              alt={`Upload ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            {/* Overlay Controls */}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition duration-150">
+                              <button
+                                type="button"
+                                onClick={() => handleMoveImage(index, 'left')}
+                                disabled={index === 0}
+                                className="p-1 rounded-lg bg-white/95 hover:bg-white text-neutral-700 disabled:opacity-30 disabled:hover:bg-white/95 transition shadow"
+                                title="Move Left"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteImage(index)}
+                                className="p-1.5 rounded-lg bg-red-650 hover:bg-red-700 text-white transition shadow"
+                                title="Delete Photo"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveImage(index, 'right')}
+                                disabled={index === formData.images.length - 1}
+                                className="p-1 rounded-lg bg-white/95 hover:bg-white text-neutral-700 disabled:opacity-30 disabled:hover:bg-white/95 transition shadow"
+                                title="Move Right"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="absolute top-2 left-2 bg-neutral-900/80 backdrop-blur-sm text-white px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                              #{index + 1}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {/* City */}
-                <div className="form-group">
-                  <label className="label">City</label>
-                  <input
-                    type="text"
-                    name="city"
-                    value={formData.city}
+                {/* Admin Notes */}
+                <div className="form-group md:col-span-2">
+                  <label className="label">Admin Notes (Shown in email) *</label>
+                  <textarea
+                    name="admin_notes"
+                    value={formData.admin_notes}
                     onChange={handleInputChange}
-                    placeholder="e.g. New York"
-                    className="input"
+                    rows={3}
+                    placeholder="Provide a short note or summary for the tenant regarding why this space matches..."
+                    className="input resize-none"
+                    required
                   />
-                </div>
-
-                {/* State */}
-                <div className="form-group">
-                  <label className="label">State</label>
-                  <input
-                    type="text"
-                    name="state"
-                    value={formData.state}
-                    onChange={handleInputChange}
-                    placeholder="e.g. NY"
-                    className="input"
-                  />
-                </div>
-
-                {/* Square Feet */}
-                <div className="form-group">
-                  <label className="label">Square Feet</label>
-                  <input
-                    type="text"
-                    name="square_feet"
-                    value={formData.square_feet}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 1500"
-                    className="input"
-                  />
-                </div>
-
-                {/* Rent */}
-                <div className="form-group">
-                  <label className="label">Monthly Rent</label>
-                  <input
-                    type="text"
-                    name="rent"
-                    value={formData.rent}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 4500"
-                    className="input"
-                  />
-                </div>
-
-                {/* Space Type */}
-                <div className="form-group">
-                  <label className="label">Space Type</label>
-                  <select
-                    name="space_type"
-                    value={formData.space_type}
-                    onChange={handleInputChange}
-                    className="select"
-                  >
-                    <option value="retail">Retail</option>
-                    <option value="office">Office</option>
-                    <option value="industrial">Industrial</option>
-                    <option value="flex">Flex</option>
-                    <option value="medical">Medical</option>
-                    <option value="restaurant">Restaurant</option>
-                    <option value="mixed">Mixed</option>
-                  </select>
                 </div>
 
                 {/* Verification Status */}
                 <div className="form-group">
-                  <label className="label">Verification Status</label>
+                  <label className="label">Verification Status *</label>
                   <select
                     name="verification_status"
                     value={formData.verification_status}
                     onChange={handleInputChange}
-                    className="select"
+                    className="select font-medium"
+                    required
                   >
                     <option value="needs_review">Needs Review</option>
                     <option value="verified">Verified (Listing is active)</option>
@@ -770,84 +1014,229 @@ export default function AdminLeadDetailPage() {
                   </select>
                 </div>
 
-                {/* Broker Name */}
-                <div className="form-group">
-                  <label className="label">Broker Name</label>
+                {/* Include Direct Source Link Checkbox */}
+                <div className="form-group flex items-center gap-2 pt-6">
                   <input
-                    type="text"
-                    name="broker_name"
-                    value={formData.broker_name}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Jane Smith"
-                    className="input"
+                    type="checkbox"
+                    id="include_source_link"
+                    name="include_source_link"
+                    checked={formData.include_source_link}
+                    onChange={e => setFormData(prev => ({ ...prev, include_source_link: e.target.checked }))}
+                    className="w-5 h-5 text-brand-600 border-neutral-300 rounded-lg focus:ring-brand-500 cursor-pointer"
                   />
+                  <label htmlFor="include_source_link" className="text-sm font-semibold text-neutral-700 cursor-pointer select-none">
+                    Include source link in tenant email
+                  </label>
                 </div>
 
-                {/* Broker Email */}
-                <div className="form-group">
-                  <label className="label">Broker Email</label>
-                  <input
-                    type="email"
-                    name="broker_email"
-                    value={formData.broker_email}
-                    onChange={handleInputChange}
-                    placeholder="jane@brokerage.com"
-                    className="input"
-                  />
+                {/* Optional Details Accordion Section */}
+                <div className="md:col-span-2 border-t border-neutral-100 pt-4">
+                  <details className="group border border-neutral-200 rounded-2xl overflow-hidden">
+                    <summary className="font-bold text-sm text-neutral-800 p-4 cursor-pointer hover:bg-neutral-50 transition flex justify-between items-center select-none">
+                      <span>📌 Optional Listing Parameters (Filters & Map Pins)</span>
+                      <span className="text-xs text-neutral-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+                    </summary>
+                    <div className="p-4 border-t border-neutral-200 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      
+                      {/* Address */}
+                      <div className="form-group">
+                        <label className="label">Address</label>
+                        <input
+                          type="text"
+                          name="address"
+                          value={formData.address}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 123 Broadway"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* Neighborhood */}
+                      <div className="form-group">
+                        <label className="label">Neighborhood</label>
+                        <input
+                          type="text"
+                          name="neighborhood"
+                          value={formData.neighborhood}
+                          onChange={handleInputChange}
+                          placeholder="e.g. Soho"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* City */}
+                      <div className="form-group">
+                        <label className="label">City</label>
+                        <input
+                          type="text"
+                          name="city"
+                          value={formData.city}
+                          onChange={handleInputChange}
+                          placeholder="e.g. New York"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* State */}
+                      <div className="form-group">
+                        <label className="label">State</label>
+                        <input
+                          type="text"
+                          name="state"
+                          value={formData.state}
+                          onChange={handleInputChange}
+                          placeholder="e.g. NY"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* Square Feet */}
+                      <div className="form-group">
+                        <label className="label">Square Feet</label>
+                        <input
+                          type="text"
+                          name="square_feet"
+                          value={formData.square_feet}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 1500"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* Rent */}
+                      <div className="form-group">
+                        <label className="label">Monthly Rent</label>
+                        <input
+                          type="text"
+                          name="rent"
+                          value={formData.rent}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 4500"
+                          className="input"
+                        />
+                      </div>
+
+                      {/* Space Type */}
+                      <div className="form-group">
+                        <label className="label">Space Type</label>
+                        <select
+                          name="space_type"
+                          value={formData.space_type}
+                          onChange={handleInputChange}
+                          className="select"
+                        >
+                          <option value="retail">Retail</option>
+                          <option value="office">Office</option>
+                          <option value="industrial">Industrial</option>
+                          <option value="flex">Flex</option>
+                          <option value="medical">Medical</option>
+                          <option value="restaurant">Restaurant</option>
+                          <option value="mixed">Mixed</option>
+                        </select>
+                      </div>
+
+                      {/* Suggested Score */}
+                      <div className="form-group">
+                        <label className="label">Match Score (0 - 100)</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            name="match_score"
+                            value={formData.match_score}
+                            onChange={handleInputChange}
+                            placeholder="e.g. 85"
+                            min="0"
+                            max="100"
+                            className="input"
+                          />
+                          {suggestedScoreCurrent > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, match_score: suggestedScoreCurrent.toString() }))}
+                              className="btn btn-secondary border-dashed flex items-center gap-1.5 px-3 flex-shrink-0 text-brand-700 hover:bg-brand-50"
+                              title="Auto calculate based on requirements"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
+                              Suggest ({suggestedScoreCurrent})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Latitude overrides */}
+                      <div className="form-group">
+                        <label className="label">Latitude (Optional Override)</label>
+                        <input
+                          type="text"
+                          name="latitude"
+                          value={formData.latitude}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 40.7233"
+                          className="input animate-in fade-in"
+                        />
+                      </div>
+
+                      {/* Longitude overrides */}
+                      <div className="form-group">
+                        <label className="label">Longitude (Optional Override)</label>
+                        <input
+                          type="text"
+                          name="longitude"
+                          value={formData.longitude}
+                          onChange={handleInputChange}
+                          placeholder="e.g. -74.0030"
+                          className="input animate-in fade-in"
+                        />
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
-                {/* Broker Phone */}
-                <div className="form-group">
-                  <label className="label">Broker Phone</label>
-                  <input
-                    type="text"
-                    name="broker_phone"
-                    value={formData.broker_phone}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 555-0199"
-                    className="input"
-                  />
-                </div>
+                {/* Collapsed Internal Broker Notes Section */}
+                <div className="md:col-span-2 border-t border-neutral-100 pt-4">
+                  <details className="group border border-neutral-200 rounded-2xl overflow-hidden bg-neutral-50/50">
+                    <summary className="font-bold text-sm text-neutral-800 p-4 cursor-pointer hover:bg-neutral-100/50 transition flex justify-between items-center select-none">
+                      <span>🔐 Internal Broker Notes (Admins Only)</span>
+                      <span className="text-xs text-neutral-400 group-open:rotate-180 transition-transform duration-200">▼</span>
+                    </summary>
+                    <div className="p-4 border-t border-neutral-200 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white">
+                      <div className="form-group">
+                        <label className="label">Broker Name</label>
+                        <input
+                          type="text"
+                          name="broker_name"
+                          value={formData.broker_name}
+                          onChange={handleInputChange}
+                          placeholder="e.g. Jane Smith"
+                          className="input"
+                        />
+                      </div>
 
-                {/* Match Score */}
-                <div className="form-group">
-                  <label className="label">Match Score (0 - 100)</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      name="match_score"
-                      value={formData.match_score}
-                      onChange={handleInputChange}
-                      placeholder="e.g. 85"
-                      min="0"
-                      max="100"
-                      className="input"
-                    />
-                    {suggestedScoreCurrent > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, match_score: suggestedScoreCurrent.toString() }))}
-                        className="btn btn-secondary border-dashed flex items-center gap-1.5 px-3 flex-shrink-0 text-brand-700 hover:bg-brand-50"
-                        title="Auto calculate based on requirements"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
-                        Use Suggested ({suggestedScoreCurrent})
-                      </button>
-                    )}
-                  </div>
-                </div>
+                      <div className="form-group">
+                        <label className="label">Broker Email</label>
+                        <input
+                          type="email"
+                          name="broker_email"
+                          value={formData.broker_email}
+                          onChange={handleInputChange}
+                          placeholder="jane@brokerage.com"
+                          className="input"
+                        />
+                      </div>
 
-                {/* Admin Notes */}
-                <div className="form-group md:col-span-2">
-                  <label className="label">Admin Notes</label>
-                  <textarea
-                    name="admin_notes"
-                    value={formData.admin_notes}
-                    onChange={handleInputChange}
-                    rows={3}
-                    placeholder="Details about matching, contacts, specific amenities, or why it was scored this way..."
-                    className="input resize-none"
-                  />
+                      <div className="form-group md:col-span-2">
+                        <label className="label">Broker Phone</label>
+                        <input
+                          type="text"
+                          name="broker_phone"
+                          value={formData.broker_phone}
+                          onChange={handleInputChange}
+                          placeholder="e.g. 555-0199"
+                          className="input"
+                        />
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
               </div>
