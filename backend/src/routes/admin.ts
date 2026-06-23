@@ -676,8 +676,17 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   });
 
   textBody += `Let us know if you would like to tour any of these spaces or need further assistance!\n\n`;
-  textBody += `Best regards,\n`;
-  textBody += `Demand RE Team`;
+  textBody += `Best regards,\n\n`;
+  textBody += `Demand RE Team\n`;
+  textBody += `demand-re.com\n\n`;
+  textBody += `Alain Haspil\n`;
+  textBody += `Leasing Associate\n`;
+  textBody += `ahaspil@gmail.com\n`;
+  textBody += `(646) 339-9013\n\n`;
+  textBody += `Jacob Rader\n`;
+  textBody += `Market Analyst\n`;
+  textBody += `jacobhrader@gmail.com\n`;
+  textBody += `(516) 404-9212`;
 
   let htmlBody = `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">`;
   htmlBody += `<h2 style="color: #0d2149;">Hi ${tenantName},</h2>`;
@@ -738,7 +747,54 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   });
 
   htmlBody += `<p>Please let us know if you would like to schedule a tour for any of these options or need more matches!</p>`;
-  htmlBody += `<p style="margin-top: 24px;">Best regards,<br/><strong>Demand RE Admin Team</strong></p>`;
+  htmlBody += `<p style="margin-top: 24px; margin-bottom: 24px; color: #475569; font-size: 15px;">Best regards,</p>`;
+  htmlBody += `<hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 24px; margin-bottom: 24px;" />`;
+  htmlBody += `<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family: sans-serif; font-size: 14px; line-height: 1.5; color: #333333; width: 100%;">`;
+  htmlBody += `  <tr>`;
+  htmlBody += `    <td style="padding-bottom: 16px;">`;
+  htmlBody += `      <strong style="color: #0f172a; font-size: 15px; font-weight: 700;">Demand RE Team</strong><br />`;
+  htmlBody += `      <a href="https://demand-re.com" target="_blank" style="color: #1d4ed8; text-decoration: none; font-weight: 600;">demand-re.com</a>`;
+  htmlBody += `    </td>`;
+  htmlBody += `  </tr>`;
+  htmlBody += `  <tr>`;
+  htmlBody += `    <td>`;
+  htmlBody += `      <!--[if mso]>`;
+  htmlBody += `      <table border="0" cellpadding="0" cellspacing="0" role="presentation">`;
+  htmlBody += `        <tr>`;
+  htmlBody += `          <td valign="top" style="width: 240px; padding-right: 24px;">`;
+  htmlBody += `      <![endif]-->`;
+  htmlBody += `      <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="left" style="margin-right: 24px; margin-bottom: 16px; min-width: 220px;">`;
+  htmlBody += `        <tr>`;
+  htmlBody += `          <td>`;
+  htmlBody += `            <strong style="color: #0f172a; font-weight: 700; font-size: 14px;">Alain Haspil</strong><br />`;
+  htmlBody += `            <span style="color: #64748b; font-size: 13px;">Leasing Associate</span><br />`;
+  htmlBody += `            <a href="mailto:ahaspil@gmail.com" style="color: #1d4ed8; text-decoration: none; font-size: 13px;">ahaspil@gmail.com</a><br />`;
+  htmlBody += `            <a href="tel:6463399013" style="color: #475569; text-decoration: none; font-size: 13px;">(646) 339-9013</a>`;
+  htmlBody += `          </td>`;
+  htmlBody += `        </tr>`;
+  htmlBody += `      </table>`;
+  htmlBody += `      <!--[if mso]>`;
+  htmlBody += `          </td>`;
+  htmlBody += `          <td valign="top" style="width: 240px;">`;
+  htmlBody += `      <![endif]-->`;
+  htmlBody += `      <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="left" style="margin-bottom: 16px; min-width: 220px;">`;
+  htmlBody += `        <tr>`;
+  htmlBody += `          <td>`;
+  htmlBody += `            <strong style="color: #0f172a; font-weight: 700; font-size: 14px;">Jacob Rader</strong><br />`;
+  htmlBody += `            <span style="color: #64748b; font-size: 13px;">Market Analyst</span><br />`;
+  htmlBody += `            <a href="mailto:jacobhrader@gmail.com" style="color: #1d4ed8; text-decoration: none; font-size: 13px;">jacobhrader@gmail.com</a><br />`;
+  htmlBody += `            <a href="tel:5164049212" style="color: #475569; text-decoration: none; font-size: 13px;">(516) 404-9212</a>`;
+  htmlBody += `          </td>`;
+  htmlBody += `        </tr>`;
+  htmlBody += `      </table>`;
+  htmlBody += `      <!--[if mso]>`;
+  htmlBody += `          </td>`;
+  htmlBody += `        </tr>`;
+  htmlBody += `      </table>`;
+  htmlBody += `      <![endif]-->`;
+  htmlBody += `    </td>`;
+  htmlBody += `  </tr>`;
+  htmlBody += `</table>`;
   htmlBody += `</div>`;
 
   // Dispatch the actual email if Resend is configured
@@ -747,6 +803,7 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
       await resend.emails.send({
         from: process.env.EMAIL_FROM || 'Demand RE <insights@demand-re.com>',
         to: [requirement.email],
+        cc: ["ahaspil@gmail.com", "jacobhrader@gmail.com"],
         subject,
         text: textBody,
         html: htmlBody,
@@ -759,6 +816,7 @@ router.post('/requirements/:id/send-matches', authenticate, requireAdmin, async 
   res.json({
     preview: {
       to: requirement.email,
+      cc: ["ahaspil@gmail.com", "jacobhrader@gmail.com"],
       subject,
       text: textBody,
       html: htmlBody,

@@ -1289,6 +1289,14 @@ export default function AdminLeadDetailPage() {
                   <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider block">To:</span>
                   <span className="text-sm font-semibold text-neutral-800">{emailPreview.to}</span>
                 </div>
+                {emailPreview.cc && (
+                  <div className="border-t border-neutral-100 pt-2">
+                    <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider block">CC:</span>
+                    <span className="text-sm font-semibold text-neutral-800">
+                      {Array.isArray(emailPreview.cc) ? emailPreview.cc.join(', ') : emailPreview.cc}
+                    </span>
+                  </div>
+                )}
                 <div className="border-t border-neutral-100 pt-2">
                   <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider block">Subject:</span>
                   <span className="text-sm font-semibold text-neutral-800">{emailPreview.subject}</span>
