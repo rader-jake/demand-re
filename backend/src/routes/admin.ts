@@ -99,9 +99,16 @@ router.post(
             }
             return publicUrl;
           } catch (uploadErr) {
-            console.error(`Failed to upload ${file.filename} to public storage, falling back to local path:`, uploadErr);
-            // Keep local file on disk and return local path
-            return `/uploads/${file.filename}`;
+            console.error(`Failed to upload ${file.filename} to public storage:`, uploadErr);
+            // Clean up local file on error to prevent disk buildup
+            try {
+              if (fs.existsSync(file.path)) {
+                fs.unlinkSync(file.path);
+              }
+            } catch (unlinkErr) {
+              console.error('Failed to delete temporary uploaded file after failure:', unlinkErr);
+            }
+            throw uploadErr;
           }
         })
       );

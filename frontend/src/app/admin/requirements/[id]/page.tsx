@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { adminApi, getErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import dynamic from 'next/dynamic';
+import { SafeImage } from '@/components/ui/SafeImage';
 
 // Load MapView dynamically to prevent SSR issues with Leaflet
 const MapView = dynamic(() => import('./MapView'), { ssr: false });
@@ -672,14 +673,21 @@ export default function AdminLeadDetailPage() {
                           <div className="flex flex-wrap gap-2 py-1">
                             {match.images.map((img: string, idx: number) => {
                               const fullUrl = img.startsWith('http') ? img : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'}${img}`;
+                              const cacheBustKey = match.updated_at ? new Date(match.updated_at).getTime().toString() : undefined;
                               return (
-                                <div key={idx} className="relative rounded-lg overflow-hidden border border-neutral-200 w-16 h-12 bg-neutral-100 flex-shrink-0">
-                                  <img
+                                <a
+                                  key={idx}
+                                  href={fullUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="relative rounded-lg overflow-hidden border border-neutral-200 w-16 h-12 bg-neutral-100 flex-shrink-0 cursor-pointer block hover:ring-2 hover:ring-brand-500 transition duration-150"
+                                >
+                                  <SafeImage
                                     src={fullUrl}
                                     alt={`Screenshot ${idx + 1}`}
-                                    className="w-full h-full object-cover"
+                                    cacheBustKey={cacheBustKey}
                                   />
-                                </div>
+                                </a>
                               );
                             })}
                           </div>
@@ -934,19 +942,19 @@ export default function AdminLeadDetailPage() {
                   </div>
 
                   {/* Thumbnail Previews with Reordering and Delete */}
-                  {formData.images && formData.images.length > 0 && (
+                  {((formData.images && formData.images.length > 0) || uploadingImages) && (
                     <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
                       {formData.images.map((imgUrl, index) => {
                         const fullUrl = imgUrl.startsWith('http') ? imgUrl : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003'}${imgUrl}`;
                         return (
                           <div key={index} className="group relative border border-neutral-200 rounded-xl overflow-hidden shadow-sm aspect-video bg-neutral-100 flex items-center justify-center">
-                            <img
+                            <SafeImage
                               src={fullUrl}
                               alt={`Upload ${index + 1}`}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full"
                             />
                             {/* Overlay Controls */}
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition duration-150">
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition duration-150 z-20">
                               <button
                                 type="button"
                                 onClick={() => handleMoveImage(index, 'left')}
@@ -974,12 +982,18 @@ export default function AdminLeadDetailPage() {
                                 <ChevronRight className="w-4 h-4" />
                               </button>
                             </div>
-                            <div className="absolute top-2 left-2 bg-neutral-900/80 backdrop-blur-sm text-white px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                            <div className="absolute top-2 left-2 bg-neutral-900/80 backdrop-blur-sm text-white px-2 py-0.5 rounded-lg text-[10px] font-bold z-20">
                               #{index + 1}
                             </div>
                           </div>
                         );
                       })}
+                      {uploadingImages && (
+                        <div className="relative border border-neutral-200 rounded-xl overflow-hidden shadow-sm aspect-video bg-neutral-100 flex flex-col items-center justify-center animate-pulse z-10">
+                          <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+                          <span className="text-[10px] font-semibold text-neutral-500 mt-2">Uploading...</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
